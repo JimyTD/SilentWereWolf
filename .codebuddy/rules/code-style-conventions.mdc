@@ -1,0 +1,51 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-02-28T07:24:39.998Z
+provider: 
+---
+
+# 代码风格与命名规范
+
+## 语言
+- 前后端统一使用 **JavaScript (ES Modules)**
+- `import/export` 语法，不用 `require/module.exports`
+- 后续可渐进引入 TypeScript
+
+## 命名规范
+
+### 文件命名
+- React 组件：**PascalCase** — `GameRoom.jsx`、`PlayerCard.jsx`
+- 工具/逻辑文件：**camelCase** — `gameManager.js`、`socketHandlers.js`
+- 常量文件：**camelCase** — `constants.js`
+- 样式文件：与组件同名 — `GameRoom.module.css`（如用 CSS Modules）
+
+### 变量命名
+- 变量 & 函数：**camelCase** — `currentPhase`、`handleVote()`
+- 常量：**UPPER_SNAKE_CASE** — `MAX_PLAYERS`、`PHASE_NIGHT`
+- React 组件：**PascalCase** — `GameBoard`、`VotePanel`
+- 布尔值：以 `is/has/can/should` 开头 — `isAlive`、`hasVoted`
+
+### Socket.IO 事件命名
+- `namespace:action` 格式
+- 使用 **camelCase** 动作名
+- 示例：`client:vote`、`server:gameStateUpdate`、`room:join`
+
+## 代码组织
+- 每个文件单一职责
+- React 组件一个文件导出一个组件
+- 相关联的代码就近组织（colocation）
+- 共享代码放 `shared/` 目录
+
+## 注释规范
+- 复杂游戏逻辑必须写注释解释规则
+- 不写废话注释（如 `// 设置变量`）
+- TODO 格式：`// TODO: 描述`
+
+## 错误处理
+- Socket 事件处理必须有 try-catch
+- 服务端必须返回有意义的错误信息
+- 前端展示用户友好的错误提示
+
+**规则优先级**：🟡 中等优先级

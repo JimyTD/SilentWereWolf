@@ -1,0 +1,38 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-02-28T07:23:41.067Z
+provider: 
+---
+
+# 禁止使用已废弃/停止维护的技术方案
+
+## 核心原则
+**技术选型中，不得使用已被官方标记为 deprecated、不推荐、或停止维护的库/框架/工具。**
+
+## 规则
+
+### 选型前必须检查
+- 该项目是否仍在**积极维护**
+- 官方是否已标记为 **deprecated**
+- 最后一次发布/更新时间是否超过 **2 年**
+
+### 发现废弃方案时
+1. **明确告知**该方案已废弃
+2. **推荐替代方案**
+3. **让用户决定**
+
+### 本项目技术栈约束
+
+| 领域 | 选用 | 禁止 |
+|------|------|------|
+| 前端框架 | React 18+ | 不使用 Class Components |
+| 构建工具 | Vite | 禁止 CRA / Webpack |
+| 后端框架 | Express 4+ | — |
+| 实时通信 | Socket.IO 4+ | 禁止原生 ws 库（除非有明确理由） |
+| CSS 方案 | Tailwind CSS / CSS Modules | 禁止 node-sass |
+| 日期处理 | Day.js / date-fns | 禁止 Moment.js |
+| HTTP 客户端 | Axios / fetch | 禁止 request |
+
+**规则优先级**：🔴 高优先级

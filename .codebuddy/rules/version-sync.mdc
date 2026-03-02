@@ -1,0 +1,51 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-02-28T07:28:42.751Z
+provider: 
+---
+
+# 版本号同步规则
+
+## 核心原则
+每次版本更新时，必须同步更新所有版本号相关位置。
+
+## 需要修改的文件
+
+### 1. 根 package.json
+**文件**: `package.json`
+```json
+"version": "X.Y.Z"
+```
+
+### 2. 前端 package.json
+**文件**: `client/package.json`
+```json
+"version": "X.Y.Z"
+```
+
+### 3. 后端 package.json
+**文件**: `server/package.json`
+```json
+"version": "X.Y.Z"
+```
+
+### 4. CHANGELOG.md
+**文件**: `CHANGELOG.md`
+```markdown
+## vX.Y.Z (YYYY-MM-DD)
+```
+
+## 版本号格式
+- 格式：`X.Y.Z`（语义化版本）
+- `X` — 大版本（重大功能变更、不兼容改动）
+- `Y` — 中版本（新功能）
+- `Z` — 小版本（Bug 修复、小调整）
+- CHANGELOG 和 Git Tag 中带 `v` 前缀：`v0.1.0`
+
+## 操作时机
+- 在 CHANGELOG.md 新增版本条目时，同步更新上述所有 package.json
+- 三处 package.json 版本号必须保持一致
+
+**规则优先级**：🟡 中等优先级
