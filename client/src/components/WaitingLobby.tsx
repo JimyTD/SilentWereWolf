@@ -1,0 +1,169 @@
+import { useState } from 'react';
+import type { Room } from '@shared/types/room';
+import { getSocket } from '../hooks/useSocket';
+import { getUserId } from '../utils/userId';
+import { useNavigate } from 'react-router-dom';
+
+const ROLE_LABELS: Record<string, string> = {
+  werewolf: '狼人', seer: '预言家', witch: '女巫', hunter: '猎人',
+  guard: '守卫', villager: '平民', gravedigger: '守墓人',
+  fool: '白痴', knight: '骑士', wolfKing: '白狼王',
+};
+
+interface Props {
+  room: Room;
+}
+
+export default function WaitingLobby({ room }: Props) {
+  const navigate = useNavigate();
+  const socket = getSocket();
+  const myUserId = getUserId();
+  const isHost = room.hostUserId === myUserId;
+  const [error, setError] = useState('');
+
+  const totalNeeded = Object.values(room.settings.roles).reduce((s, c) => s + c, 0);
+  const canStart = room.players.length === totalNeeded;
+
+  const handleStartGame = () => {
+    if (!socket) return;
+    setError('');
+    socket.emit('room:startGame', (res) => {
+      if (!res.success) {
+        setError(res.message || '开始游戏失败');
+      }
+    });
+  };
+
+  const handleLeave = () => {
+    socket?.emit('room:leave');
+    navigate('/');
+  };
+
+  const handleKick = (targetUserId: string) => {
+    socket?.emit('room:kick', { targetUserId });
+  };
+
+  const handleCopyRoomId = () => {
+    navigator.clipboard.writeText(room.roomId);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-lg">
+        {/* 房间号 */}
+        <div className="text-center mb-8">
+          <div className="text-gray-400 text-sm mb-1">房间号</div>
+          <button
+            onClick={handleCopyRoomId}
+            className="text-4xl font-bold tracking-[0.3em] text-indigo-400 hover:text-indigo-300 transition"
+            title="点击复制"
+          >
+            {room.roomId}
+          </button>
+          <div className="text-gray-500 text-xs mt-1">点击复制</div>
+        </div>
+
+        {/* 错误提示 */}
+        {error && (
+          <div className="bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-2 rounded-lg mb-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* 玩家列表 */}
+        <div className="bg-gray-800 rounded-xl p-5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-semibold">
+              玩家 ({room.players.length}/{totalNeeded})
+            </h3>
+          </div>
+
+          <div className="space-y-2">
+            {Array.from({ length: totalNeeded }, (_, i) => {
+              const player = room.players.find(p => p.seatNumber === i + 1);
+              return (
+                <div
+                  key={i}
+                  className={`flex items-center justify-between px-4 py-3 rounded-lg ${
+                    player ? 'bg-gray-700/50' : 'bg-gray-900/30 border border-dashed border-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="w-7 h-7 flex items-center justify-center bg-gray-600 rounded-full text-xs font-bold text-gray-300">
+                      {i + 1}
+                    </span>
+                    {player ? (
+                      <span className="text-white">
+                        {player.nickname}
+                        {player.userId === room.hostUserId && (
+                          <span className="ml-2 text-xs text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded">房主</span>
+                        )}
+                        {player.userId === myUserId && (
+                          <span className="ml-2 text-xs text-indigo-400 bg-indigo-400/10 px-2 py-0.5 rounded">你</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-gray-500">等待加入...</span>
+                    )}
+                  </div>
+                  {isHost && player && player.userId !== myUserId && (
+                    <button
+                      onClick={() => handleKick(player.userId)}
+                      className="text-xs text-red-400 hover:text-red-300 transition"
+                    >
+                      踢出
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 角色配置 */}
+        <div className="bg-gray-800 rounded-xl p-5 mb-6">
+          <h3 className="text-white font-semibold mb-3">角色配置</h3>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(room.settings.roles)
+              .filter(([_, count]) => count > 0)
+              .map(([role, count]) => (
+                <span
+                  key={role}
+                  className={`px-3 py-1 rounded-full text-xs font-medium ${
+                    role === 'werewolf' || role === 'wolfKing'
+                      ? 'bg-red-500/20 text-red-300'
+                      : 'bg-blue-500/20 text-blue-300'
+                  }`}
+                >
+                  {ROLE_LABELS[role] || role} ×{count}
+                </span>
+              ))}
+          </div>
+        </div>
+
+        {/* 操作按钮 */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleLeave}
+            className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-300 py-3 rounded-lg transition font-medium"
+          >
+            离开房间
+          </button>
+          {isHost && (
+            <button
+              onClick={handleStartGame}
+              disabled={!canStart}
+              className={`flex-1 py-3 rounded-lg transition font-semibold ${
+                canStart
+                  ? 'bg-green-600 hover:bg-green-500 text-white'
+                  : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+              }`}
+            >
+              {canStart ? '开始游戏' : `等待玩家 (${room.players.length}/${totalNeeded})`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

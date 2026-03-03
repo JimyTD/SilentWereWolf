@@ -1,0 +1,22 @@
+{
+  "name": "silent-werewolf",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "scripts": {
+    "dev:server": "cd server && npx tsx watch index.ts",
+    "dev:client": "cd client && npx vite",
+    "build": "npx vite build client",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  }
+}

@@ -9,23 +9,29 @@ provider:
 # 代码风格与命名规范
 
 ## 语言
-- 前后端统一使用 **JavaScript (ES Modules)**
+- 前后端统一使用 **TypeScript**
 - `import/export` 语法，不用 `require/module.exports`
-- 后续可渐进引入 TypeScript
+- 严格模式：`tsconfig.json` 开启 `strict: true`
+- 禁止使用 `any`，确有需要时用 `unknown` 并做类型收窄
 
 ## 命名规范
 
 ### 文件命名
-- React 组件：**PascalCase** — `GameRoom.jsx`、`PlayerCard.jsx`
-- 工具/逻辑文件：**camelCase** — `gameManager.js`、`socketHandlers.js`
-- 常量文件：**camelCase** — `constants.js`
+- React 组件：**PascalCase** — `GameRoom.tsx`、`PlayerCard.tsx`
+- 工具/逻辑文件：**camelCase** — `gameManager.ts`、`socketHandlers.ts`
+- 常量文件：**camelCase** — `constants.ts`
+- 类型定义文件：**camelCase** — `game.ts`、`room.ts`（放在 `types/` 目录下）
+- 测试文件：与源文件同名 + `.test` 后缀 — `rules.test.ts`、`nightResolve.test.ts`
 - 样式文件：与组件同名 — `GameRoom.module.css`（如用 CSS Modules）
+- Zustand Store 文件：**camelCase** + `Store` 后缀 — `gameStore.ts`、`roomStore.ts`
 
 ### 变量命名
 - 变量 & 函数：**camelCase** — `currentPhase`、`handleVote()`
 - 常量：**UPPER_SNAKE_CASE** — `MAX_PLAYERS`、`PHASE_NIGHT`
 - React 组件：**PascalCase** — `GameBoard`、`VotePanel`
 - 布尔值：以 `is/has/can/should` 开头 — `isAlive`、`hasVoted`
+- 类型/接口：**PascalCase** — `GameState`、`PlayerInfo`、`NightAction`
+- 枚举：**PascalCase** 枚举名 + **UPPER_SNAKE_CASE** 成员 — `Phase.DAY_VOTING`
 
 ### Socket.IO 事件命名
 - `namespace:action` 格式

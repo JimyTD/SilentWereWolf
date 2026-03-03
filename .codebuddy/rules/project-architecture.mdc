@@ -18,20 +18,26 @@ provider:
 - **Tailwind CSS** — 样式方案
 - **Socket.IO Client** — 实时通信
 - **React Router** — 路由管理
+- **Zustand** — 游戏状态管理（替代 Context 避免频繁刷新）
 
 ### 后端
 - **Node.js** + **Express** — HTTP 服务
 - **Socket.IO** — 实时双向通信（房间管理、游戏状态同步）
-- **内存状态管理** — 房间和游戏状态不需要持久化数据库
+- **内存状态管理**（首版） — 通过 `GameStore` 抽象层访问，后续可替换为 Redis/SQLite
+
+### 测试
+- **Vitest** — 单元测试框架，覆盖游戏核心逻辑（夜晚结算、胜负判定、触发链）
 
 ### 语言
-- 全栈统一 **JavaScript (ES Modules)**，有需要时可渐进引入 TypeScript
+- 全栈统一 **TypeScript**
+- 前端使用 `.tsx` / `.ts`，后端使用 `.ts`（通过 `tsx` 或 `ts-node` 运行）
+- `shared/` 目录的类型定义前后端共用
 
 ## 目录结构
 
 ```
 SilentWerewolf/
-├── client/                # 前端（React + Vite）
+├── client/                # 前端（React + Vite + TypeScript）
 │   ├── public/
 │   ├── src/
 │   │   ├── assets/        # 静态资源（图片、图标等）
@@ -39,29 +45,41 @@ SilentWerewolf/
 │   │   ├── pages/         # 页面组件（大厅、房间、游戏、后台）
 │   │   ├── game/          # 游戏逻辑相关组件与状态
 │   │   ├── hooks/         # 自定义 Hooks（useSocket, useGame 等）
-│   │   ├── contexts/      # React Context（游戏状态、用户信息）
+│   │   ├── stores/        # Zustand 状态管理（gameStore, roomStore 等）
 │   │   ├── utils/         # 工具函数
-│   │   ├── App.jsx
-│   │   └── main.jsx
+│   │   ├── App.tsx
+│   │   └── main.tsx
 │   ├── index.html
 │   ├── tailwind.config.js
-│   ├── vite.config.js
+│   ├── tsconfig.json
+│   ├── vite.config.ts
 │   └── package.json
-├── server/                # 后端（Node.js + Express + Socket.IO）
+├── server/                # 后端（Node.js + Express + Socket.IO + TypeScript）
 │   ├── game/              # 游戏核心逻辑
-│   │   ├── GameManager.js     # 游戏管理器（房间生命周期）
-│   │   ├── GameState.js       # 游戏状态机（回合、阶段）
+│   │   ├── GameManager.ts     # 游戏管理器（房间生命周期）
+│   │   ├── GameState.ts       # 游戏状态机（回合、阶段）
+│   │   ├── GameStore.ts       # 存储抽象层（首版内存实现，可替换）
 │   │   ├── roles/             # 角色定义与技能逻辑
-│   │   └── rules.js           # 规则与胜负判定
+│   │   └── rules.ts           # 规则与胜负判定
+│   ├── game/__tests__/    # 游戏逻辑单元测试
+│   │   ├── rules.test.ts
+│   │   ├── nightResolve.test.ts
+│   │   └── triggerChain.test.ts
 │   ├── rooms/             # 房间管理
-│   │   └── RoomManager.js
+│   │   └── RoomManager.ts
 │   ├── socket/            # Socket.IO 事件处理
-│   │   └── handlers.js
-│   ├── index.js           # 入口
+│   │   └── handlers.ts
+│   ├── index.ts           # 入口
+│   ├── tsconfig.json
 │   └── package.json
-├── shared/                # 前后端共享代码
-│   ├── constants.js       # 角色、阶段等常量
-│   └── validators.js      # 共享校验逻辑
+├── shared/                # 前后端共享代码与类型定义
+│   ├── types/             # TypeScript 类型定义
+│   │   ├── game.ts        # 游戏状态、角色、阶段等类型
+│   │   ├── room.ts        # 房间、玩家类型
+│   │   └── socket.ts      # Socket 事件 payload 类型
+│   ├── constants.ts       # 角色、阶段等常量
+│   └── validators.ts      # 共享校验逻辑
+├── vitest.config.ts       # Vitest 配置
 └── package.json           # 根 package.json（workspace 或脚本）
 ```
 
@@ -71,6 +89,9 @@ SilentWerewolf/
 2. **事件驱动** — 通过 Socket.IO 事件驱动游戏流程，前端响应状态变更
 3. **房间隔离** — 每个房间独立游戏实例，互不影响
 4. **角色可扩展** — 角色系统模块化，便于后续新增角色
+5. **类型安全** — 通过 `shared/types/` 统一定义游戏状态、Socket 事件 payload 的 TypeScript 类型，前后端共享
+6. **存储可替换** — 游戏状态通过 `GameStore` 抽象层访问，首版内存实现，后续可替换为 Redis/SQLite
+7. **核心逻辑可测试** — 夜晚结算、胜负判定、触发链等关键逻辑必须有单元测试覆盖
 
 ## 端口约定
 - 前端开发服务器：`5173`（Vite 默认）

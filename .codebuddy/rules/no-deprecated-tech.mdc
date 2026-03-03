@@ -32,7 +32,11 @@ provider:
 | 后端框架 | Express 4+ | — |
 | 实时通信 | Socket.IO 4+ | 禁止原生 ws 库（除非有明确理由） |
 | CSS 方案 | Tailwind CSS / CSS Modules | 禁止 node-sass |
+| 语言 | TypeScript（严格模式） | 禁止纯 JavaScript（`.js`/`.jsx`） |
+| 前端状态管理 | Zustand | 禁止 Redux、禁止用 Context 管理高频更新状态 |
+| 测试框架 | Vitest | 禁止 Jest（与 Vite 生态不一致） |
 | 日期处理 | Day.js / date-fns | 禁止 Moment.js |
 | HTTP 客户端 | Axios / fetch | 禁止 request |
+| 后端 TS 运行 | tsx / ts-node | 禁止手动编译后再运行 |
 
 **规则优先级**：🔴 高优先级
