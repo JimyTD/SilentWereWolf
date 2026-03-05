@@ -31,6 +31,7 @@ interface GameStoreState {
   nightAction: NightActionPrompt | null;
   witchVictim: string | null;
   investigations: { target: string; faction: Faction }[];
+  wolfVotes: Record<string, string>; // 狼人队友投票情况
 
   // 白天公告
   announcements: DayAnnouncementData[];
@@ -43,6 +44,7 @@ interface GameStoreState {
   votingData: VotingStartData | null;
   votingResult: VotingResultData | null;
   hasVoted: boolean;
+  voteHistory: VotingResultData[];
 
   // 游戏结束
   gameOverData: GameOverData | null;
@@ -52,6 +54,7 @@ interface GameStoreState {
   setFromReconnect: (data: ClientGameState) => void;
   setPhase: (phase: Phase, round: number) => void;
   setNightAction: (data: NightActionPrompt) => void;
+  setWolfVotes: (votes: Record<string, string>) => void;
   setWitchInfo: (victim: string | null) => void;
   addInvestigation: (target: string, faction: Faction) => void;
   addAnnouncement: (data: DayAnnouncementData) => void;
@@ -75,12 +78,14 @@ const initialState = {
   nightAction: null,
   witchVictim: null,
   investigations: [],
+  wolfVotes: {},
   announcements: [],
   markingTurn: null,
   marks: [],
   votingData: null,
   votingResult: null,
   hasVoted: false,
+  voteHistory: [],
   gameOverData: null,
 };
 
@@ -100,12 +105,14 @@ export const useGameStore = create<GameStoreState>((set) => ({
       nightAction: null,
       witchVictim: null,
       investigations: [],
+      wolfVotes: {},
       announcements: [],
       marks: [],
       markingTurn: null,
       votingData: null,
       votingResult: null,
       hasVoted: false,
+      voteHistory: [],
       gameOverData: null,
     }),
 
@@ -128,6 +135,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       phase,
       round,
       nightAction: null,
+      wolfVotes: {},
       markingTurn: null,
       votingData: null,
       votingResult: null,
@@ -135,6 +143,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
     }),
 
   setNightAction: (data) => set({ nightAction: data }),
+  setWolfVotes: (votes) => set({ wolfVotes: votes }),
   setWitchInfo: (victim) => set({ witchVictim: victim }),
 
   addInvestigation: (target, faction) =>
@@ -172,7 +181,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
           p.userId === data.exiled ? { ...p, alive: false } : p
         );
       }
-      return { votingResult: data, players: updatedPlayers };
+      return { votingResult: data, players: updatedPlayers, voteHistory: [...state.voteHistory, data] };
     }),
 
   setGameOver: (data) =>

@@ -10,6 +10,7 @@ import type {
   VoteRecord,
   DeathRecord,
   PlayerItem,
+  NightActions,
 } from './game';
 
 // ========== 客户端 → 服务端 事件 ==========
@@ -20,6 +21,9 @@ export interface ClientToServerEvents {
   'room:kick': (data: { targetUserId: string }) => void;
   'room:updateSettings': (data: { settings: GameSettings }) => void;
   'room:startGame': (callback: (res: BaseResponse) => void) => void;
+  'room:addAI': (callback: (res: BaseResponse) => void) => void;
+  'room:removeAI': (data: { targetUserId: string }) => void;
+  'room:testAI': (callback: (res: BaseResponse) => void) => void;
   'client:nightAction': (data: NightActionPayload) => void;
   'client:submitMarks': (data: SubmitMarksPayload) => void;
   'client:vote': (data: { target: string }) => void;
@@ -40,6 +44,7 @@ export interface ServerToClientEvents {
   'server:phaseChange': (data: PhaseChangeData) => void;
   'server:nightAction': (data: NightActionPrompt) => void;
   'server:witchInfo': (data: { victim: string | null }) => void;
+  'server:wolfVoteUpdate': (data: { votes: Record<string, string> }) => void;
   'server:investigateResult': (data: { target: string; faction: Faction }) => void;
   'server:autopsyResult': (data: { target: string; faction: Faction }) => void;
   'server:dayAnnouncement': (data: DayAnnouncementData) => void;
@@ -129,6 +134,8 @@ export interface NightActionPayload {
 }
 
 export interface DayAnnouncementData {
+  round: number;
+  type: 'night' | 'exile';
   deaths: {
     userId: string;
     seatNumber: number;
@@ -162,17 +169,21 @@ export interface VotingResultData {
   tie: boolean;
 }
 
+export type GameOverReason = 'wolves_eliminated' | 'specials_eliminated' | 'villagers_eliminated' | 'exile';
+
 export interface GameOverData {
   winner: Faction;
+  reason: GameOverReason;
   players: (PublicPlayerInfo & {
     role: string;
     faction: Faction;
     items: PlayerItem[];
   })[];
   history: {
-    rounds: unknown[];
+    rounds: NightActions[];
     marks: PlayerMarks[];
     votes: VoteRecord[][];
+    deaths: DeathRecord[];
   };
 }
 

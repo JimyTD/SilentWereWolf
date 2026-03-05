@@ -74,7 +74,6 @@ export default function VotingPanel({ room }: Props) {
     <div className="bg-gray-800 rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-red-400 font-bold">放逐投票</h3>
-        <span className="text-gray-500 text-sm">{votingData.timeout}s</span>
       </div>
 
       <div className="text-sm text-gray-400 mb-3">选择一名玩家放逐（不可投自己、不可弃票）</div>

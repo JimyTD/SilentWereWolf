@@ -20,9 +20,13 @@ export default function WaitingLobby({ room }: Props) {
   const myUserId = getUserId();
   const isHost = room.hostUserId === myUserId;
   const [error, setError] = useState('');
+  const [addingAI, setAddingAI] = useState(false);
+  const [testingAI, setTestingAI] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const totalNeeded = Object.values(room.settings.roles).reduce((s, c) => s + c, 0);
   const canStart = room.players.length === totalNeeded;
+  const canAddAI = room.players.length < totalNeeded;
 
   const handleStartGame = () => {
     if (!socket) return;
@@ -43,8 +47,41 @@ export default function WaitingLobby({ room }: Props) {
     socket?.emit('room:kick', { targetUserId });
   };
 
+  const handleAddAI = () => {
+    if (!socket || addingAI) return;
+    setError('');
+    setAddingAI(true);
+    socket.emit('room:addAI', (res) => {
+      setAddingAI(false);
+      if (!res.success) {
+        setError(res.message || '添加AI失败');
+      }
+    });
+  };
+
+  const handleTestAI = () => {
+    if (!socket || testingAI) return;
+    setTestResult(null);
+    setTestingAI(true);
+    socket.emit('room:testAI', (res) => {
+      setTestingAI(false);
+      setTestResult({ success: res.success, message: res.message || (res.success ? 'AI 连接正常' : 'AI 连接失败') });
+    });
+  };
+
   const handleCopyRoomId = () => {
-    navigator.clipboard.writeText(room.roomId);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(room.roomId);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = room.roomId;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
   };
 
   return (
@@ -70,12 +107,40 @@ export default function WaitingLobby({ room }: Props) {
           </div>
         )}
 
+        {testResult && (
+          <div className={`px-4 py-2 rounded-lg mb-4 text-sm border ${
+            testResult.success
+              ? 'bg-green-500/20 border-green-500/50 text-green-300'
+              : 'bg-red-500/20 border-red-500/50 text-red-300'
+          }`}>
+            {testResult.message}
+          </div>
+        )}
+
         {/* 玩家列表 */}
         <div className="bg-gray-800 rounded-xl p-5 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-white font-semibold">
               玩家 ({room.players.length}/{totalNeeded})
             </h3>
+            {isHost && canAddAI && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleTestAI}
+                  disabled={testingAI}
+                  className="text-xs bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:cursor-wait text-gray-200 px-3 py-1.5 rounded-lg transition font-medium"
+                >
+                  {testingAI ? '测试中...' : '测试 AI'}
+                </button>
+                <button
+                  onClick={handleAddAI}
+                  disabled={addingAI}
+                  className="text-xs bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-wait text-white px-3 py-1.5 rounded-lg transition font-medium"
+                >
+                  {addingAI ? '添加中...' : '+ 添加 AI'}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">

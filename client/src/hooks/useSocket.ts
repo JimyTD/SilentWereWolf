@@ -87,6 +87,10 @@ export function useSocket() {
       useGameStore.getState().setNightAction(data);
     });
 
+    socket.on('server:wolfVoteUpdate', (data) => {
+      useGameStore.getState().setWolfVotes(data.votes);
+    });
+
     socket.on('server:witchInfo', (data) => {
       useGameStore.getState().setWitchInfo(data.victim);
     });

@@ -27,7 +27,6 @@ export default function MarkingPanel({ room }: Props) {
   const socket = getSocket();
 
   const [selfIdentity, setSelfIdentity] = useState('');
-  const [selfReason, setSelfReason] = useState<string>(COMMON_REASONS.INTUITION);
   const [evaluations, setEvaluations] = useState<{ target: string; identity: string; reason: string }[]>([]);
   const [submitted, setSubmitted] = useState(false);
 
@@ -91,12 +90,14 @@ export default function MarkingPanel({ room }: Props) {
   };
 
   const handleSubmit = () => {
-    if (!socket || !selfIdentity || evaluations.length < evalCount) return;
-    if (evaluations.some(e => !e.target || !e.identity)) return;
+    if (!socket || !selfIdentity) return;
+    // 已填写的评价必须完整（有目标和身份）
+    const validEvals = evaluations.filter(e => e.target && e.identity);
+    if (evaluations.some(e => (e.target || e.identity) && (!e.target || !e.identity))) return;
 
     socket.emit('client:submitMarks', {
-      identityMark: { identity: selfIdentity, reason: selfReason as MarkReason },
-      evaluationMarks: evaluations.map(e => ({
+      identityMark: { identity: selfIdentity, reason: COMMON_REASONS.INTUITION as MarkReason },
+      evaluationMarks: validEvals.map(e => ({
         target: e.target,
         identity: e.identity,
         reason: e.reason as MarkReason,
@@ -111,19 +112,20 @@ export default function MarkingPanel({ room }: Props) {
     return `${p?.seatNumber || '?'}号 ${rp?.nickname || '???'}`;
   };
 
-  const isComplete = selfIdentity && evaluations.length === evalCount && evaluations.every(e => e.target && e.identity);
+  // 只需要身份声明，已填写的评价需完整
+  const hasIncompleteEval = evaluations.some(e => (e.target || e.identity) && (!e.target || !e.identity));
+  const isComplete = selfIdentity && !hasIncompleteEval;
 
   return (
     <div className="bg-gray-800 rounded-xl p-5 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-green-400 font-bold">你的标记</h3>
-        <span className="text-gray-500 text-sm">{markingTurn.timeout}s</span>
       </div>
 
       {/* 身份声明 */}
       <div>
         <label className="text-sm text-gray-400 mb-2 block">身份声明（必选）</label>
-        <div className="flex flex-wrap gap-2 mb-2">
+        <div className="flex flex-wrap gap-2">
           {markingTurn.availableIdentities.map(id => (
             <button
               key={id}
@@ -138,21 +140,12 @@ export default function MarkingPanel({ room }: Props) {
             </button>
           ))}
         </div>
-        <select
-          value={selfReason}
-          onChange={e => setSelfReason(e.target.value)}
-          className="w-full bg-gray-700 text-gray-300 rounded-lg px-3 py-2 text-sm"
-        >
-          {Object.entries(COMMON_REASONS).map(([_, v]) => (
-            <option key={v} value={v}>{REASON_LABELS[v]}</option>
-          ))}
-        </select>
       </div>
 
       {/* 评价标记 */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="text-sm text-gray-400">评价标记（需 {evalCount} 个）</label>
+          <label className="text-sm text-gray-400">评价标记（最多 {evalCount} 个，可不填）</label>
           {evaluations.length < evalCount && (
             <button onClick={addEvaluation} className="text-xs text-indigo-400 hover:text-indigo-300">
               + 添加评价

@@ -1,3 +1,4 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -9,6 +10,7 @@ import { RoomManager } from './rooms/RoomManager';
 import { startRoomCleanup } from './rooms/cleanup';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 const httpServer = createServer(app);

@@ -1,11 +1,16 @@
 import type { GameState, GamePlayer, DeathRecord, NightActions } from '../../shared/types/game';
 import { ROLES, FACTIONS, SPECIAL_ROLES, DEATH_CAUSE, ROLE_FACTION } from '../../shared/constants';
 
+export interface WinResult {
+  winner: 'good' | 'evil';
+  reason: 'wolves_eliminated' | 'specials_eliminated' | 'villagers_eliminated';
+}
+
 /**
  * 胜负判定
- * 返回 'good' | 'evil' | null（游戏继续）
+ * 返回 WinResult | null（游戏继续）
  */
-export function checkWinCondition(gameState: GameState): 'good' | 'evil' | null {
+export function checkWinCondition(gameState: GameState): WinResult | null {
   const alivePlayers = gameState.players.filter(p => p.alive);
   const aliveWolves = alivePlayers.filter(p => p.faction === FACTIONS.EVIL);
   const aliveGood = alivePlayers.filter(p => p.faction === FACTIONS.GOOD);
@@ -13,11 +18,11 @@ export function checkWinCondition(gameState: GameState): 'good' | 'evil' | null 
   const aliveSpecials = aliveGood.filter(p => SPECIAL_ROLES.has(p.role as string));
 
   // 好人胜：所有狼人出局
-  if (aliveWolves.length === 0) return FACTIONS.GOOD;
+  if (aliveWolves.length === 0) return { winner: FACTIONS.GOOD, reason: 'wolves_eliminated' };
 
   // 狼人胜（屠边）：所有神职出局 或 所有平民出局
-  if (aliveSpecials.length === 0 && aliveGood.length > 0) return FACTIONS.EVIL;
-  if (aliveVillagers.length === 0 && aliveGood.length > 0) return FACTIONS.EVIL;
+  if (aliveSpecials.length === 0 && aliveGood.length > 0) return { winner: FACTIONS.EVIL, reason: 'specials_eliminated' };
+  if (aliveVillagers.length === 0 && aliveGood.length > 0) return { winner: FACTIONS.EVIL, reason: 'villagers_eliminated' };
 
   return null;
 }

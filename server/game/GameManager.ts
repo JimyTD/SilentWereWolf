@@ -19,7 +19,6 @@ import {
   ROLE_FACTION,
   NIGHT_ACTION_ORDER,
   ITEMS,
-  DEFAULT_TIMERS,
 } from '../../shared/constants';
 import { getRolesFromSettings } from '../../shared/validators';
 import { createRole } from './roles/index';
@@ -35,20 +34,18 @@ export class GameManager {
   private room: Room;
   private state!: GameState;
   private roleHandlers = new Map<string, ReturnType<typeof createRole>>();
-  private nightActionTimer: NodeJS.Timeout | null = null;
-  private markingTimer: NodeJS.Timeout | null = null;
-  private votingTimer: NodeJS.Timeout | null = null;
   private collectedVotes: VoteRecord[] = [];
 
   // 回调，由 socket handler 设置
   public onPhaseChange?: (state: GameState) => void;
   public onNightActionPrompt?: (userId: string, roleName: string, targets: string[], witchInfo?: { victim: string | null; hasAntidote: boolean; hasPoison: boolean; canSelfSave: boolean }) => void;
-  public onDayAnnouncement?: (deaths: DeathRecord[], peacefulNight: boolean) => void;
+  public onDayAnnouncement?: (deaths: DeathRecord[], peacefulNight: boolean, round: number, type: 'night' | 'exile') => void;
   public onMarkingTurn?: (userId: string, evaluationMarkCount: number, identities: string[]) => void;
   public onMarksRevealed?: (marks: PlayerMarks) => void;
   public onVotingStart?: (candidates: string[]) => void;
   public onVotingResult?: (votes: VoteRecord[], exiled: string | null, tie: boolean) => void;
-  public onGameOver?: (winner: 'good' | 'evil') => void;
+  public onGameOver?: (winner: 'good' | 'evil', reason: string) => void;
+  public onWolfVoteUpdate?: (wolfUserIds: string[], votes: Record<string, string>) => void;
   public onInvestigateResult?: (userId: string, target: string, faction: 'good' | 'evil') => void;
 
   constructor(room: Room) {
@@ -68,6 +65,10 @@ export class GameManager {
     // 随机打乱角色分配
     const shuffledRoles = this.shuffle([...roleList]);
 
+    // 随机打乱座位号
+    const seatNumbers = this.room.players.map((_, i) => i + 1);
+    const shuffledSeats = this.shuffle([...seatNumbers]);
+
     const players: GamePlayer[] = this.room.players.map((rp, index) => {
       const role = shuffledRoles[index] as GamePlayer['role'];
       const faction = ROLE_FACTION[role] as 'good' | 'evil';
@@ -80,7 +81,7 @@ export class GameManager {
 
       return {
         userId: rp.userId,
-        seatNumber: rp.seatNumber,
+        seatNumber: shuffledSeats[index],
         role,
         faction,
         alive: true,
@@ -149,7 +150,6 @@ export class GameManager {
               this.onNightActionPrompt?.(wolf.userId, wolf.role, targets);
             }
           }
-          this.startNightActionTimer(() => this.handleNightTimeout(ROLES.WEREWOLF, i));
           return;
         }
         continue;
@@ -168,7 +168,6 @@ export class GameManager {
           hasPoison: !witchState.poisonUsed,
           canSelfSave: this.state.round === 1,
         });
-        this.startNightActionTimer(() => this.handleNightTimeout(ROLES.WITCH, i));
         return;
       }
 
@@ -179,7 +178,6 @@ export class GameManager {
         this.state.nightCurrentRole = roleName;
         const targets = handler.getAvailableTargets(this.state, player);
         this.onNightActionPrompt?.(player.userId, roleName, targets);
-        this.startNightActionTimer(() => this.handleNightTimeout(roleName, i));
         return;
       }
     }
@@ -202,6 +200,15 @@ export class GameManager {
 
     if (!success) return false;
 
+    // 狼人投票后通知队友
+    if ((player.role === ROLES.WEREWOLF || player.role === ROLES.WOLF_KING) && this.state.nightActions.wolves) {
+      const aliveWolves = this.state.players.filter(
+        p => p.alive && (p.role === ROLES.WEREWOLF || p.role === ROLES.WOLF_KING)
+      );
+      const wolfIds = aliveWolves.map(w => w.userId);
+      this.onWolfVoteUpdate?.(wolfIds, { ...this.state.nightActions.wolves.votes });
+    }
+
     // 预言家查验结果立即返回
     if (player.role === ROLES.SEER && action.target) {
       const target = this.state.players.find(p => p.userId === action.target);
@@ -212,7 +219,6 @@ export class GameManager {
 
     // 检查当前角色组是否全部完成
     if (this.isCurrentRoleGroupDone()) {
-      this.clearNightActionTimer();
       const currentIndex = NIGHT_ACTION_ORDER.indexOf(this.state.nightCurrentRole as typeof NIGHT_ACTION_ORDER[number]);
       // 跳过同组的狼人角色
       let nextIndex = currentIndex + 1;
@@ -250,49 +256,6 @@ export class GameManager {
     return true;
   }
 
-  private handleNightTimeout(role: string, orderIndex: number): void {
-    // 超时 → 视为不操作
-    if (role === ROLES.WEREWOLF || role === ROLES.WOLF_KING) {
-      if (!this.state.nightActions.wolves?.target) {
-        // 随机选一个已提交的目标，若无则随机选
-        const wolves = this.state.nightActions.wolves;
-        if (wolves && Object.keys(wolves.votes).length > 0) {
-          const targets = Object.values(wolves.votes);
-          wolves.target = targets[Math.floor(Math.random() * targets.length)];
-        } else {
-          // 无人投票，随机选目标
-          const validTargets = this.state.players.filter(p => p.alive && p.faction !== FACTIONS.EVIL);
-          if (validTargets.length > 0) {
-            const randomTarget = validTargets[Math.floor(Math.random() * validTargets.length)];
-            if (!this.state.nightActions.wolves) {
-              this.state.nightActions.wolves = { target: randomTarget.userId, votes: {} };
-            } else {
-              this.state.nightActions.wolves.target = randomTarget.userId;
-            }
-          }
-        }
-      }
-    } else if (role === ROLES.WITCH) {
-      if (!this.state.nightActions.witch) {
-        this.state.nightActions.witch = { action: 'none', target: null };
-      }
-    } else if (role === ROLES.SEER) {
-      if (!this.state.nightActions.seer) {
-        this.state.nightActions.seer = { target: null };
-      }
-    } else if (role === ROLES.GUARD) {
-      if (!this.state.nightActions.guard) {
-        this.state.nightActions.guard = { target: null };
-      }
-    }
-
-    const nextIndex = role === ROLES.WEREWOLF
-      ? NIGHT_ACTION_ORDER.indexOf(ROLES.WITCH)
-      : orderIndex + 1;
-
-    this.processNextNightRole(nextIndex >= 0 ? nextIndex : orderIndex + 1);
-  }
-
   private resolveNightPhase(): void {
     const deaths = resolveNight(this.state);
 
@@ -304,12 +267,12 @@ export class GameManager {
     this.state.phase = PHASES.DAY_ANNOUNCEMENT;
     this.state.nightCurrentRole = null;
     this.onPhaseChange?.(this.state);
-    this.onDayAnnouncement?.(deaths, deaths.length === 0);
+    this.onDayAnnouncement?.(deaths, deaths.length === 0, this.state.round, 'night');
 
     // 检查胜负
-    const winner = checkWinCondition(this.state);
-    if (winner) {
-      this.endGame(winner);
+    const winResult = checkWinCondition(this.state);
+    if (winResult) {
+      this.endGame(winResult.winner, winResult.reason);
       return;
     }
 
@@ -346,13 +309,6 @@ export class GameManager {
     const identities = getAvailableIdentities(this.state);
 
     this.onMarkingTurn?.(currentUserId, evalCount, identities);
-
-    const timeout = this.room.settings.timers?.marking || DEFAULT_TIMERS.MARKING;
-    this.startMarkingTimer(() => {
-      // 超时 → 跳过该玩家
-      this.state.markingCurrent++;
-      this.promptNextMarking();
-    }, timeout);
   }
 
   handleSubmitMarks(userId: string, marks: PlayerMarks): boolean {
@@ -364,7 +320,6 @@ export class GameManager {
     this.state.history.marks.push(marks);
     this.onMarksRevealed?.(marks);
 
-    this.clearMarkingTimer();
     this.state.markingCurrent++;
     this.promptNextMarking();
 
@@ -383,13 +338,6 @@ export class GameManager {
 
     this.onPhaseChange?.(this.state);
     this.onVotingStart?.(candidates);
-
-    const timeout = this.room.settings.timers?.voting || DEFAULT_TIMERS.VOTING;
-    this.startVotingTimer(() => {
-      // 为未投票的玩家随机投票
-      this.fillRandomVotes();
-      this.resolveVotingPhase();
-    }, timeout);
   }
 
   handleVote(userId: string, target: string): boolean {
@@ -407,27 +355,10 @@ export class GameManager {
     // 检查是否所有人都投了
     const aliveVoters = this.state.players.filter(p => p.alive);
     if (this.collectedVotes.length >= aliveVoters.length) {
-      this.clearVotingTimer();
       this.resolveVotingPhase();
     }
 
     return true;
-  }
-
-  private fillRandomVotes(): void {
-    const alivePlayers = this.state.players.filter(p => p.alive);
-    const votedUserIds = new Set(this.collectedVotes.map(v => v.voter));
-
-    for (const player of alivePlayers) {
-      if (!votedUserIds.has(player.userId)) {
-        // 随机投一个非自己的存活玩家
-        const targets = alivePlayers.filter(p => p.userId !== player.userId);
-        if (targets.length > 0) {
-          const randomTarget = targets[Math.floor(Math.random() * targets.length)];
-          this.collectedVotes.push({ voter: player.userId, target: randomTarget.userId });
-        }
-      }
-    }
   }
 
   private resolveVotingPhase(): void {
@@ -436,12 +367,15 @@ export class GameManager {
 
     this.onVotingResult?.(this.collectedVotes, result.exiled, result.tie);
 
-    if (result.exiled) {
-      this.handleExile(result.exiled);
-    } else {
-      // 平票 → 无人出局，进入夜晚
-      this.advanceToNextNight();
-    }
+    // 延迟5秒再切换阶段，让玩家有时间查看投票结果
+    setTimeout(() => {
+      if (result.exiled) {
+        this.handleExile(result.exiled);
+      } else {
+        // 平票 → 无人出局，进入夜晚
+        this.advanceToNextNight();
+      }
+    }, 5000);
   }
 
   private handleExile(userId: string): void {
@@ -464,10 +398,19 @@ export class GameManager {
       relics: [...player.items],
     });
 
+    // 广播放逐公告（含遗物信息）
+    this.onDayAnnouncement?.([{
+      userId: player.userId,
+      seatNumber: player.seatNumber,
+      cause: 'exiled',
+      round: this.state.round,
+      relics: [...player.items],
+    }], false, this.state.round, 'exile');
+
     // 检查胜负
-    const winner = checkWinCondition(this.state);
-    if (winner) {
-      this.endGame(winner);
+    const winResult = checkWinCondition(this.state);
+    if (winResult) {
+      this.endGame(winResult.winner, winResult.reason);
       return;
     }
 
@@ -482,13 +425,12 @@ export class GameManager {
 
   // ========== 游戏结束 ==========
 
-  private endGame(winner: 'good' | 'evil'): void {
+  private endGame(winner: 'good' | 'evil', reason: string): void {
     this.state.phase = PHASES.GAME_OVER;
     this.state.status = 'finished';
     this.state.winner = winner;
-    this.clearAllTimers();
     this.onPhaseChange?.(this.state);
-    this.onGameOver?.(winner);
+    this.onGameOver?.(winner, reason);
   }
 
   // ========== 辅助方法 ==========
@@ -510,14 +452,21 @@ export class GameManager {
   }
 
   private calculateBalanceBadges(players: GamePlayer[]): void {
-    for (let i = 0; i < players.length; i++) {
-      const player = players[i];
+    // 按座位号排序后计算邻座，形成环形座位
+    const sorted = [...players].sort((a, b) => a.seatNumber - b.seatNumber);
+    const seatToFaction = new Map<number, GamePlayer['faction']>();
+    for (const p of sorted) {
+      seatToFaction.set(p.seatNumber, p.faction);
+    }
+
+    for (const player of players) {
       for (const item of player.items) {
         if (item.type === ITEMS.BALANCE) {
-          const leftIndex = (i - 1 + players.length) % players.length;
-          const rightIndex = (i + 1) % players.length;
-          const leftFaction = players[leftIndex].faction;
-          const rightFaction = players[rightIndex].faction;
+          const idx = sorted.findIndex(p => p.userId === player.userId);
+          const leftIndex = (idx - 1 + sorted.length) % sorted.length;
+          const rightIndex = (idx + 1) % sorted.length;
+          const leftFaction = sorted[leftIndex].faction;
+          const rightFaction = sorted[rightIndex].faction;
           item.value = leftFaction === rightFaction ? 'balanced' : 'unbalanced';
         }
       }
@@ -559,48 +508,4 @@ export class GameManager {
     return array;
   }
 
-  // ========== 计时器管理 ==========
-
-  private startNightActionTimer(callback: () => void): void {
-    this.clearNightActionTimer();
-    const timeout = (this.room.settings.timers?.nightAction || DEFAULT_TIMERS.NIGHT_ACTION) * 1000;
-    this.nightActionTimer = setTimeout(callback, timeout);
-  }
-
-  private clearNightActionTimer(): void {
-    if (this.nightActionTimer) {
-      clearTimeout(this.nightActionTimer);
-      this.nightActionTimer = null;
-    }
-  }
-
-  private startMarkingTimer(callback: () => void, seconds: number): void {
-    this.clearMarkingTimer();
-    this.markingTimer = setTimeout(callback, seconds * 1000);
-  }
-
-  private clearMarkingTimer(): void {
-    if (this.markingTimer) {
-      clearTimeout(this.markingTimer);
-      this.markingTimer = null;
-    }
-  }
-
-  private startVotingTimer(callback: () => void, seconds: number): void {
-    this.clearVotingTimer();
-    this.votingTimer = setTimeout(callback, seconds * 1000);
-  }
-
-  private clearVotingTimer(): void {
-    if (this.votingTimer) {
-      clearTimeout(this.votingTimer);
-      this.votingTimer = null;
-    }
-  }
-
-  private clearAllTimers(): void {
-    this.clearNightActionTimer();
-    this.clearMarkingTimer();
-    this.clearVotingTimer();
-  }
 }

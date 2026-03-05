@@ -3,12 +3,16 @@ import type { GameSettings } from '../../shared/types/game';
 import { ROOM_STATUS, ROOM_ID_MIN, ROOM_ID_MAX, RECONNECT_TIMEOUT, PRESETS, MAX_PLAYERS } from '../../shared/constants';
 import { validateGameSettings, validateNickname } from '../../shared/validators';
 import { GameManager } from '../game/GameManager';
+import { v4 as uuidv4 } from 'uuid';
+import { generateAIName } from '../game/ai/AIApiClient';
+import { getDefaultAIName } from '../game/ai/aiNames';
 
 export class RoomManager {
   private rooms = new Map<string, Room>();
   private users = new Map<string, UserInfo>(); // userId → UserInfo
   private gameManagers = new Map<string, GameManager>(); // roomId → GameManager
   private disconnectTimers = new Map<string, NodeJS.Timeout>(); // userId → timer
+  private aiPlayers = new Set<string>(); // AI 玩家的 userId 集合
 
   // ========== 房间 CRUD ==========
 
@@ -278,7 +282,7 @@ export class RoomManager {
     if (room) {
       room.status = ROOM_STATUS.WAITING;
       room.lastActivityAt = Date.now();
-      // 重新分配座位
+      // 重新分配座位（保留 AI 玩家）
       room.players.forEach((p, i) => {
         p.seatNumber = i + 1;
         p.ready = false;
@@ -286,6 +290,121 @@ export class RoomManager {
     }
     this.gameManagers.delete(roomId);
     return room;
+  }
+
+  // ========== AI 玩家管理 ==========
+
+  /**
+   * 添加 AI 玩家到房间（仅房主可调用）
+   */
+  async addAIPlayer(hostUserId: string): Promise<{ success: boolean; room?: Room; player?: RoomPlayer; error?: string; message?: string }> {
+    const user = this.users.get(hostUserId);
+    if (!user || !user.roomId) {
+      return { success: false, error: 'NOT_IN_ROOM', message: '你不在房间中' };
+    }
+
+    const room = this.rooms.get(user.roomId);
+    if (!room) {
+      return { success: false, error: 'ROOM_NOT_FOUND', message: '房间不存在' };
+    }
+    if (room.hostUserId !== hostUserId) {
+      return { success: false, error: 'NOT_HOST', message: '仅房主可以添加AI' };
+    }
+    if (room.status !== ROOM_STATUS.WAITING) {
+      return { success: false, error: 'GAME_IN_PROGRESS', message: '游戏中无法添加AI' };
+    }
+
+    const totalNeeded = this.getTotalPlayersFromSettings(room.settings);
+    if (room.players.length >= totalNeeded) {
+      return { success: false, error: 'ROOM_FULL', message: '房间已满' };
+    }
+
+    // 生成 AI 身份
+    const aiUserId = `ai-${uuidv4()}`;
+    const existingNames = room.players.map(p => p.nickname);
+
+    // 尝试 LLM 取名，失败则用默认昵称池
+    let nickname = await generateAIName(existingNames);
+    if (!nickname) {
+      nickname = getDefaultAIName(existingNames);
+    }
+
+    const seatNumber = this.getNextSeat(room);
+    const player: RoomPlayer = {
+      userId: aiUserId,
+      nickname,
+      seatNumber,
+      connected: true,
+      ready: false,
+    };
+
+    room.players.push(player);
+    room.lastActivityAt = Date.now();
+    this.aiPlayers.add(aiUserId);
+
+    // AI 不需要 UserInfo（不走 socket），但注册一个虚拟的方便查询
+    this.users.set(aiUserId, {
+      userId: aiUserId,
+      nickname,
+      socketId: '',
+      roomId: room.roomId,
+      connected: true,
+    });
+
+    console.log(`[AI] AI 玩家 ${nickname}(${aiUserId}) 加入房间 ${room.roomId}`);
+
+    return { success: true, room, player };
+  }
+
+  /**
+   * 移除 AI 玩家（房主踢出 AI 时调用）
+   */
+  removeAIPlayer(hostUserId: string, aiUserId: string): { success: boolean; room?: Room; error?: string; message?: string } {
+    if (!this.isAI(aiUserId)) {
+      // 不是 AI，走普通踢人逻辑
+      return this.kickPlayer(hostUserId, aiUserId);
+    }
+
+    const user = this.users.get(hostUserId);
+    if (!user || !user.roomId) {
+      return { success: false, error: 'NOT_IN_ROOM', message: '你不在房间中' };
+    }
+
+    const room = this.rooms.get(user.roomId);
+    if (!room) {
+      return { success: false, error: 'ROOM_NOT_FOUND', message: '房间不存在' };
+    }
+    if (room.hostUserId !== hostUserId) {
+      return { success: false, error: 'NOT_HOST', message: '仅房主可以移除AI' };
+    }
+    if (room.status !== ROOM_STATUS.WAITING) {
+      return { success: false, error: 'GAME_IN_PROGRESS', message: '游戏中无法移除AI' };
+    }
+
+    room.players = room.players.filter(p => p.userId !== aiUserId);
+    this.aiPlayers.delete(aiUserId);
+    this.users.delete(aiUserId);
+    room.lastActivityAt = Date.now();
+
+    console.log(`[AI] AI 玩家 ${aiUserId} 从房间 ${room.roomId} 移除`);
+
+    return { success: true, room };
+  }
+
+  /**
+   * 判断 userId 是否为 AI 玩家
+   */
+  isAI(userId: string): boolean {
+    return this.aiPlayers.has(userId);
+  }
+
+  /**
+   * 获取房间内所有 AI 玩家的 userId
+   */
+  getAIPlayers(roomId: string): string[] {
+    const room = this.rooms.get(roomId);
+    if (!room) return [];
+    return room.players.filter(p => this.aiPlayers.has(p.userId)).map(p => p.userId);
   }
 
   // ========== 掉线/重连 ==========

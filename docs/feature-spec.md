@@ -1,7 +1,7 @@
 # 《静夜标记》功能规格文档
 
-> 版本：v0.1 草案  
-> 更新日期：2026-03-02  
+> 版本：v0.2 草案  
+> 更新日期：2026-03-04  
 > 状态：待确认  
 > 依赖：游戏设计文档 `game-design.md`
 
@@ -321,11 +321,12 @@ Socket 事件：`room:startGame`
 房主点击开始后，服务端执行：
 
 1. **分配身份**：将配置的角色随机分配给每位玩家
-2. **分配物品**：从启用的物品池中随机为每位玩家分配物品（深度模式分配 2 个）
-3. **计算固定物品值**：天平徽章根据座位和阵营立即计算
-4. **初始化游戏状态**：回合数、阶段、各角色技能使用状态
-5. **狼人互认**：向所有狼人推送队友信息
-6. **推送身份**：向每位玩家单独推送自己的身份和物品类型
+2. **随机座位号**：打乱座位号分配（与加入房间的顺序无关）
+3. **分配物品**：从启用的物品池中随机为每位玩家分配物品（深度模式分配 2 个）
+4. **计算固定物品值**：天平徽章根据座位和阵营立即计算
+5. **初始化游戏状态**：回合数、阶段、各角色技能使用状态
+6. **狼人互认**：向所有狼人推送队友信息
+7. **推送身份**：向每位玩家单独推送自己的身份和物品类型
 
 #### 推送给各玩家的初始数据
 
@@ -354,16 +355,16 @@ night → day_announcement → day_hunter → day_knight → day_marking → day
                                                                                   game_over
 ```
 
-| 阶段 | 说明 | 超时 |
-|------|------|------|
-| `night` | 夜晚行动（各角色按顺序操作） | 各角色独立计时 |
-| `day_announcement` | 公布死讯 + 遗物公开 | 自动推进，无需操作 |
-| `day_hunter` | 猎人开枪（如被刀死触发） | nightAction 时长 |
-| `day_knight` | 骑士决斗（如有骑士且未使用） | nightAction 时长 |
-| `day_marking` | 标记发言（按顺序依次进行） | marking 时长 × 存活人数 |
-| `day_voting` | 放逐投票 | voting 时长 |
-| `day_trigger` | 放逐后特殊触发（白痴/白狼王/猎人） | 每个触发独立计时 |
-| `game_over` | 游戏结束，展示结算 | — |
+| 阶段 | 说明 |
+|------|------|
+| `night` | 夜晚行动（各角色按顺序操作，无时间限制） |
+| `day_announcement` | 公布死讯 + 遗物公开 |
+| `day_hunter` | 猎人开枪（如被刀死触发） |
+| `day_knight` | 骑士决斗（如有骑士且未使用） |
+| `day_marking` | 标记发言（按顺序依次进行，无时间限制） |
+| `day_voting` | 放逐投票（无时间限制） |
+| `day_trigger` | 放逐后特殊触发（白痴/白狼王/猎人） |
+| `game_over` | 游戏结束，展示结算 |
 
 #### 阶段推进
 
@@ -381,7 +382,9 @@ night → day_announcement → day_hunter → day_knight → day_marking → day
 
 2. server:nightAction → 狼人们
    ← client:nightAction { action: "attack", target: userId }
-   （多个狼人需达成一致，如超时未统一则随机选其中一个提交的目标）
+   （多个狼人需达成一致，最终以多数投票决定目标）
+   → server:wolfVoteUpdate { votes: { wolfUserId: targetUserId } }  // 实时广播给所有狼人
+   狼人可以选择攻击自己（自刀），不能攻击狼队友
 
 3. server:nightAction → 女巫（如有）
    // 先告知谁被刀
@@ -397,7 +400,7 @@ night → day_announcement → day_hunter → day_knight → day_marking → day
    server:autopsyResult { target: userId, faction: "good" | "evil" }
 ```
 
-每个角色有独立的操作倒计时（`nightAction` 秒），超时视为不操作。
+每个角色操作无时间限制，操作完成后系统自动推进到下一角色。
 
 夜晚所有角色操作完毕后，服务端统一结算（见设计文档 5.2），然后推进到白天。
 
@@ -428,7 +431,7 @@ night → day_announcement → day_hunter → day_knight → day_marking → day
 
 ```javascript
 // server:hunterTrigger → 猎人
-{ canShoot: true, timeout: 20 }
+{ canShoot: true }
 
 // client:hunterAction
 { action: "shoot" | "skip", target: userId }
@@ -441,7 +444,7 @@ night → day_announcement → day_hunter → day_knight → day_marking → day
 
 ```javascript
 // server:knightTurn → 骑士
-{ canDuel: true, timeout: 20 }
+{ canDuel: true }
 
 // client:knightAction
 { action: "duel" | "skip", target: userId }
@@ -456,7 +459,7 @@ night → day_announcement → day_hunter → day_knight → day_marking → day
 
 ```javascript
 // server:markingTurn → 当前发言玩家
-{ yourTurn: true, timeout: 60 }
+{ yourTurn: true }
 
 // client:submitMarks
 {
@@ -503,7 +506,7 @@ const SPECIAL_REASONS = {
 
 ```javascript
 // server:votingStart → 全体
-{ timeout: 30, candidates: [userId, ...] }  // 候选人 = 所有存活且有投票权的玩家
+{ candidates: [userId, ...] }  // 候选人 = 所有存活且有投票权的玩家
 
 // client:vote
 { target: userId }  // 不可投自己，不可弃票
@@ -708,6 +711,7 @@ function checkWinCondition(gameState) {
 | S→C | `server:gameStart` | 游戏开始，推送身份 |
 | S→C | `server:phaseChange` | 阶段切换 |
 | S→C | `server:nightAction` | 通知角色进行夜晚操作 |
+| S→C | `server:wolfVoteUpdate` | 狼人队友投票进度实时更新 |
 | S→C | `server:witchInfo` | 女巫专用：告知被刀者 |
 | S→C | `server:investigateResult` | 预言家/守墓人查验结果 |
 | S→C | `server:dayAnnouncement` | 白天公告（死讯+遗物） |
@@ -753,7 +757,7 @@ function checkWinCondition(gameState) {
 
 - 显示房间号（可复制）
 - 玩家列表（头像占位 + 昵称 + 座位号）
-- 房间配置展示（角色配置、物品设置、计时器等）
+- 房间配置展示（角色配置、物品设置等）
 - 房主额外显示：修改配置、踢人、开始游戏按钮
 - 人数不足时「开始游戏」按钮置灰
 
@@ -772,10 +776,12 @@ function checkWinCondition(gameState) {
 └─────────────────────────────────┘
 ```
 
-#### 玩家席位环
+#### 玩家圆桌
 
-- 所有玩家环形排列，自己固定在底部中央
+- 所有玩家按座位号顺时针排列在圆桌周围，自己固定在底部中央
+- 圆桌中央为装饰区域
 - 每个席位显示：昵称、座位号、存活状态、濒死标记（深度模式）
+- 当前发言者高亮显示（绿色边框+脉冲动画）
 - 出局玩家灰色处理，显示已公开的遗物图标
 - 翻开的白痴显示特殊标识
 
@@ -831,9 +837,200 @@ function checkWinCondition(gameState) {
 
 ---
 
-## 九、首版范围与后续规划
+## 九、AI 玩家系统
 
-### 9.1 首版功能（MVP）
+### 9.1 设计原则
+
+1. **AI = 普通玩家**：对其他玩家完全不可见，无任何标记区分
+2. **信息严格对等**：AI 只能获取与其角色身份对应的信息，和真人玩家完全一致，禁止开天眼
+3. **LLM 直驱**：通过智谱 GLM-4.7-Flash（免费模型）驱动决策，不做 if-else 规则层
+4. **无难度分级**：LLM 本身决策水平即为难度
+5. **数量不限**：一局中 AI 数量没有上限，理论上可以全是 AI
+
+### 9.2 AI 加入方式
+
+房主在等候大厅点击"添加 AI"按钮，AI 以普通玩家身份加入房间。
+
+- `RoomPlayer` 增加 `isAI: boolean` 字段（**仅服务端持有，不推送给前端**）
+- AI 的 `userId` 格式：`ai-{uuid}`（服务端内部标识）
+- AI 永远 `connected: true`，不存在掉线
+- 仅房主可添加/移除 AI
+- 前端显示时 AI 与真人无任何区别
+
+#### AI 昵称
+
+- 添加 AI 时，调用 LLM 生成一个自然的中文昵称（2-4 个字）
+- 如果 LLM 调用失败，使用默认昵称池兜底（确保不与房间内已有昵称重复）
+- 默认昵称池示例：`林夕`、`陈北`、`苏然`、`韩明`、`沈默`、`叶知秋`、`顾南`、`白川`...
+
+#### 前端交互
+
+- 房主在等候大厅看到"添加 AI"按钮
+- 点击后直接添加一个 AI 玩家到房间（无需额外配置）
+- 房主可以像踢普通玩家一样移除 AI
+- 其他玩家看到的是一个"普通玩家加入了房间"
+
+### 9.3 信息管控架构（核心）
+
+#### 9.3.1 信息分层
+
+| 信息层级 | 内容 | 谁可见 |
+|----------|------|--------|
+| **公开信息** | 玩家列表、座位号、存活状态、已公开遗物、标记记录、投票记录、死亡公告 | 所有人 |
+| **阵营信息** | 狼人队友身份和座位号 | 仅狼人阵营 |
+| **角色私有信息** | 预言家查验结果、女巫被刀信息及用药记录、守卫上轮守护目标、守墓人验尸结果 | 仅对应角色自己 |
+| **禁止信息** | 其他玩家角色、其他玩家私有操作、未来的夜晚结算结果 | 任何人不可见 |
+
+#### 9.3.2 Context 构建器
+
+`AIContextBuilder` 是 AI 获取信息的**唯一出口**，AI 模块不直接读取 `GameState`。
+
+```
+AIContextBuilder.build(gameState, aiPlayer) → string
+```
+
+按 AI 当前角色过滤信息：
+
+| AI 角色 | 可获取的额外信息（公开信息之外） |
+|---------|-------------------------------|
+| 狼人/白狼王 | 同伴身份、每夜刀人目标 |
+| 预言家 | 历史查验结果 |
+| 女巫 | 当夜被刀者、解药/毒药使用记录 |
+| 守卫 | 上轮守护目标（不能连守） |
+| 守墓人 | 验尸结果 |
+| 猎人 | 能否开枪 |
+| 骑士 | 能否决斗 |
+| 白痴 | 免疫是否已用 |
+| 平民 | 仅公开信息 |
+
+#### 9.3.3 信息隔离保障
+
+- `AIContextBuilder` 构建的 Context 可 log 记录，方便调试审计"AI 看到了什么"
+- 单元测试覆盖：每个角色的 Context 构建必须有测试，验证不泄露禁止信息
+
+### 9.4 LLM 调用架构
+
+#### 9.4.1 模块结构
+
+```
+server/game/ai/
+├── AIPlayerController.ts    # AI 玩家控制器：接收游戏事件 → 调用 LLM → 返回操作
+├── AIContextBuilder.ts      # 信息上下文构建器：按角色过滤信息
+├── AIPromptTemplates.ts     # 各阶段的 prompt 模板
+├── AIApiClient.ts           # 智谱 API 封装
+└── aiNames.ts               # AI 默认昵称池（LLM 取名失败时兜底）
+```
+
+#### 9.4.2 调用流程
+
+```
+GameManager 检测到当前操作玩家是 AI
+  → AIPlayerController.decide(gameState, aiPlayer, actionType)
+    → AIContextBuilder.build(gameState, aiPlayer)  // 构建信息上下文（按角色过滤）
+    → AIPromptTemplates.get(actionType)            // 获取 prompt 模板
+    → 组装完整 prompt（系统人设 + 信息上下文 + 操作指令）
+    → AIApiClient.call(prompt)                     // 调用智谱 GLM-4.7-Flash
+    → 解析 LLM 返回 → 校验合法性 → 返回操作结果
+  → GameManager 执行操作（与真人操作走同一代码路径）
+```
+
+#### 9.4.3 Prompt 结构
+
+每次调用 LLM 由三部分组成：
+
+**系统 Prompt（角色设定）**：告知 AI 身份、阵营、游戏规则概要、行为准则（像真人一样思考）
+
+**信息上下文（AIContextBuilder 生成）**：当前局势、存活玩家、私有信息（按角色过滤）、历史标记/投票/死亡记录
+
+**操作指令**：当前阶段需要做什么、可选目标列表、要求的输出 JSON 格式
+
+#### 9.4.4 各阶段输出格式
+
+| 阶段 | 输出格式 |
+|------|---------|
+| 夜晚-狼人 | `{"target": "userId"}` |
+| 夜晚-预言家 | `{"target": "userId"}` |
+| 夜晚-女巫 | `{"potion": "antidote/poison/none", "target": "userId/null"}` |
+| 夜晚-守卫 | `{"target": "userId/null"}` |
+| 夜晚-守墓人 | `{"target": "userId/null"}` |
+| 标记发言 | `{"identity": "角色", "reason": "理由", "evaluations": [...]}` |
+| 投票 | `{"target": "userId"}` |
+| 猎人开枪 | `{"action": "shoot/skip", "target": "userId/null"}` |
+| 骑士决斗 | `{"action": "duel/skip", "target": "userId/null"}` |
+| 白狼王带人 | `{"action": "drag/skip", "target": "userId/null"}` |
+
+#### 9.4.5 响应解析与容错
+
+1. 先做 JSON 解析
+2. 格式不对时用正则提取关键字段
+3. 仍失败则**重试一次**（附更明确的格式指示）
+4. 最终仍失败 → fallback：不操作或随机选择合法目标
+5. 所有失败均记录日志
+
+#### 9.4.6 模拟思考延迟
+
+- 夜晚操作：3-8 秒随机延迟
+- 标记发言：5-15 秒随机延迟
+- 投票：2-6 秒随机延迟
+
+### 9.5 智谱 API 配置
+
+```
+环境变量：
+ZHIPU_API_KEY=xxx
+ZHIPU_MODEL=glm-4.7-flash        # 免费模型
+```
+
+- API Key 通过环境变量管理，不硬编码
+- `temperature`: 0.7-0.8（保持决策多样性）
+- `max_tokens`: 夜晚操作 200，标记发言 500
+- 超时：5 秒内无响应则取消，走 fallback
+
+### 9.6 GameManager 改造
+
+各阶段回调触发时检测目标玩家 `isAI`：
+
+- 是 AI → 不走 Socket 推送 → 调用 `AIPlayerController`
+- `AIPlayerController` 返回决策后 → 直接调用 `GameManager` 对应 handle 方法
+- AI 操作与真人操作走**完全相同的代码路径**，确保规则校验一致
+
+```
+示例：夜晚轮到预言家（AI）操作
+  → onNightActionPrompt(aiUserId, "seer", targets)
+  → Socket Handler 检测 isAI → 跳过 Socket 推送
+  → 调用 AIPlayerController.decide(...)
+  → 等待思考延迟 + LLM 响应
+  → 返回 { target: "xxx" }
+  → 调用 GameManager.handleNightAction(aiUserId, { action: "investigate", target: "xxx" })
+```
+
+### 9.7 对局日志
+
+保留 AI 的完整决策日志，用于调试和回放。
+
+#### 日志内容
+
+每次 AI 决策记录：
+- 时间戳
+- AI 玩家 ID、角色
+- 游戏阶段、轮次
+- 完整 prompt（含 Context）
+- LLM 原始返回
+- 解析后的操作结果
+- 是否触发了重试/fallback
+
+#### 存储
+
+- 按对局（roomId）组织，一局一个日志文件
+- 存放路径：`server/logs/ai/{roomId}_{timestamp}.json`
+- 预估大小：每局 50-100KB，1000 局约 50-100MB
+- 首版不做自动清理，后续可加按时间/数量的轮转策略
+
+---
+
+## 十、首版范围与后续规划
+
+### 10.1 首版功能（MVP）
 
 - [x] 游客模式（UUID + 昵称）
 - [ ] 房间创建/加入/离开
@@ -844,8 +1041,9 @@ function checkWinCondition(gameState) {
 - [ ] 物品系统（月光石 + 天平徽章）
 - [ ] 掉线重连
 - [ ] 游戏结算展示
+- [ ] AI 玩家（LLM 驱动，房主添加，信息管控）
 
-### 9.2 次版功能
+### 10.2 次版功能
 
 - [ ] 扩展角色：猎人、白狼王、白痴、骑士、守墓人
 - [ ] 猎犬哨（大局物品）
@@ -853,11 +1051,10 @@ function checkWinCondition(gameState) {
 - [ ] 自定义角色配置
 - [ ] 遗言功能
 
-### 9.3 远期规划
+### 10.3 远期规划
 
 - [ ] 账号系统（注册/登录）
 - [ ] 战绩统计
-- [ ] AI NPC 玩家（规则型 → 大模型型）
 - [ ] 警长系统
 - [ ] 更多物品类型
 - [ ] 移动端适配优化

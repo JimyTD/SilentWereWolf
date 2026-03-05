@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PRESETS, DEFAULT_TIMERS, ITEMS } from '@shared/constants';
+import { PRESETS, ITEMS } from '@shared/constants';
 import type { GameSettings, ItemType } from '@shared/types/game';
 
 const PRESET_LABELS: Record<string, string> = {
@@ -26,11 +26,6 @@ export default function CreateRoomModal({ onClose, onCreate, loading }: Props) {
       items: {
         enabled: true,
         pool: [ITEMS.MOONSTONE, ITEMS.BALANCE] as ItemType[],
-      },
-      timers: {
-        marking: DEFAULT_TIMERS.MARKING,
-        voting: DEFAULT_TIMERS.VOTING,
-        nightAction: DEFAULT_TIMERS.NIGHT_ACTION,
       },
       lastWords: false,
       deepMode: false,

@@ -48,9 +48,14 @@ export class Werewolf extends BaseRole {
   }
 
   getAvailableTargets(gameState: GameState, player: GamePlayer): string[] {
-    // 狼人可以攻击任何存活的非狼人玩家
+    // 狼人可以攻击任何存活的非狼队友玩家（包括自己，自刀是合法策略）
+    const wolfTeammateIds = new Set(
+      gameState.players
+        .filter(p => p.alive && p.faction === 'evil' && p.userId !== player.userId)
+        .map(p => p.userId)
+    );
     return gameState.players
-      .filter(p => p.alive && p.faction !== 'evil' && p.userId !== player.userId)
+      .filter(p => p.alive && !wolfTeammateIds.has(p.userId))
       .map(p => p.userId);
   }
 }

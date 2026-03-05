@@ -1,14 +1,23 @@
+import { useState } from 'react';
 import type { Room } from '@shared/types/room';
 import type { GameOverData } from '@shared/types/socket';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '../stores/gameStore';
 import { useRoomStore } from '../stores/roomStore';
 import { getUserId } from '../utils/userId';
+import ReplayLog from './ReplayLog';
 
 const ROLE_LABELS: Record<string, string> = {
   werewolf: '狼人', seer: '预言家', witch: '女巫', hunter: '猎人',
   guard: '守卫', villager: '平民', gravedigger: '守墓人',
   fool: '白痴', knight: '骑士', wolfKing: '白狼王',
+};
+
+const REASON_LABELS: Record<string, string> = {
+  wolves_eliminated: '所有狼人已出局',
+  specials_eliminated: '所有神职已出局（屠边）',
+  villagers_eliminated: '所有平民已出局（屠边）',
+  exile: '投票放逐',
 };
 
 interface Props {
@@ -21,6 +30,7 @@ export default function GameOverPanel({ room, data }: Props) {
   const myUserId = getUserId();
   const myFaction = useGameStore(s => s.myFaction);
   const isWinner = data.winner === myFaction;
+  const [showReplay, setShowReplay] = useState(false);
 
   const handleBackToLobby = () => {
     useGameStore.getState().reset();
@@ -33,6 +43,10 @@ export default function GameOverPanel({ room, data }: Props) {
     useRoomStore.getState().setRoom(null);
     navigate('/');
   };
+
+  if (showReplay) {
+    return <ReplayLog data={data} onClose={() => setShowReplay(false)} />;
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -49,6 +63,11 @@ export default function GameOverPanel({ room, data }: Props) {
           <div className={`text-lg ${data.winner === 'good' ? 'text-blue-300' : 'text-red-300'}`}>
             {data.winner === 'good' ? '好人阵营获胜' : '狼人阵营获胜'}
           </div>
+          {data.reason && (
+            <div className="text-sm text-gray-400 mt-2">
+              {REASON_LABELS[data.reason] || data.reason}
+            </div>
+          )}
         </div>
 
         {/* 身份揭晓 */}
@@ -83,7 +102,9 @@ export default function GameOverPanel({ room, data }: Props) {
                     </span>
                     {p.items.length > 0 && p.items.map((item, i) => (
                       <span key={i} className="text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded">
-                        {item.type === 'moonstone' ? `月光石:${item.value}` : `天平:${item.value}`}
+                        {item.type === 'moonstone' ? `月光石: ${item.value}`
+                          : item.type === 'balance' ? `天平: ${item.value === 'balanced' ? '平衡' : '失衡'}`
+                          : `${item.type}: ${item.value}`}
                       </span>
                     ))}
                   </div>
@@ -93,19 +114,27 @@ export default function GameOverPanel({ room, data }: Props) {
         </div>
 
         {/* 操作按钮 */}
-        <div className="flex gap-3">
+        <div className="space-y-3">
           <button
-            onClick={handleGoHome}
-            className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-300 py-3 rounded-lg transition font-medium"
+            onClick={() => setShowReplay(true)}
+            className="w-full bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-lg transition font-semibold"
           >
-            返回首页
+            复盘日志
           </button>
-          <button
-            onClick={handleBackToLobby}
-            className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-lg transition font-semibold"
-          >
-            再来一局
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleGoHome}
+              className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-300 py-3 rounded-lg transition font-medium"
+            >
+              返回首页
+            </button>
+            <button
+              onClick={handleBackToLobby}
+              className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-lg transition font-semibold"
+            >
+              再来一局
+            </button>
+          </div>
         </div>
       </div>
     </div>

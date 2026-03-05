@@ -4,6 +4,13 @@ import type { RoomManager } from '../rooms/RoomManager';
 import type { GameManager } from '../game/GameManager';
 import type { PlayerMarks, VoteRecord, DeathRecord } from '../../shared/types/game';
 import { ROLE_FACTION, ROLES } from '../../shared/constants';
+import {
+  decideNightAction,
+  decideMarking,
+  decideVote,
+} from '../game/ai/AIPlayerController';
+import { flushLogs } from '../game/ai/AILogger';
+import { testAIConnection } from '../game/ai/AIApiClient';
 
 type IOServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -15,7 +22,7 @@ export function registerSocketHandlers(
   userId: string,
   nickname: string
 ): void {
-  // 通知连接成功
+  // 通知连接成功（重连或新连接）
   const existingUser = roomManager.getUser(userId);
   if (existingUser?.roomId) {
     // 重连场景：更新 socketId 和 connected 状态
@@ -28,6 +35,9 @@ export function registerSocketHandlers(
         const state = gm.getState();
         const player = state.players.find(p => p.userId === userId);
         if (player) {
+          // 从死亡历史重建公告
+          const announcements = rebuildAnnouncements(state);
+
           socket.emit('server:reconnected', {
             room,
             gameState: {
@@ -45,33 +55,39 @@ export function registerSocketHandlers(
               round: state.round,
               marks: state.history.marks,
               votes: state.history.votes,
-              announcements: [],
+              announcements,
             },
           });
           // 通知房间其他人该玩家已重连
           socket.to(existingUser.roomId).emit('server:roomUpdate', room);
-          return;
         }
+      } else {
+        // 等待中的房间：返回 room 数据让前端恢复
+        socket.emit('server:connected', { userId, roomId: existingUser.roomId, room });
+        // 通知房间其他人
+        socket.to(existingUser.roomId).emit('server:roomUpdate', room);
       }
-      // 等待中的房间：返回 room 数据让前端恢复
-      socket.emit('server:connected', { userId, roomId: existingUser.roomId, room });
-      // 通知房间其他人
-      socket.to(existingUser.roomId).emit('server:roomUpdate', room);
-      return;
+    } else {
+      // 房间已不存在
+      socket.emit('server:connected', { userId, roomId: null });
     }
+  } else {
+    socket.emit('server:connected', { userId, roomId: null });
   }
-  socket.emit('server:connected', { userId, roomId: null });
 
   // ========== 房间事件 ==========
 
   socket.on('room:create', (data, callback) => {
+    console.log(`[room:create] 收到创建房间请求, userId=${userId}, nickname=${nickname}, settings=`, data?.settings?.preset);
     try {
       const result = roomManager.createRoom(userId, nickname, socket.id, data.settings);
+      console.log(`[room:create] 创建结果: success=${result.success}, roomId=${result.roomId}, error=${result.error}`);
       if (result.success && result.roomId) {
         socket.join(result.roomId);
       }
       callback(result);
     } catch (err) {
+      console.error('[room:create] 异常:', err);
       callback({ success: false, error: 'INTERNAL_ERROR', message: '创建房间失败' });
     }
   });
@@ -115,6 +131,15 @@ export function registerSocketHandlers(
 
   socket.on('room:kick', (data) => {
     try {
+      // 支持踢 AI 和普通玩家
+      if (roomManager.isAI(data.targetUserId)) {
+        const result = roomManager.removeAIPlayer(userId, data.targetUserId);
+        if (result.success && result.room) {
+          io.to(result.room.roomId).emit('server:roomUpdate', result.room);
+        }
+        return;
+      }
+
       const result = roomManager.kickPlayer(userId, data.targetUserId);
       if (result.success && result.room) {
         // 通知被踢者
@@ -140,6 +165,45 @@ export function registerSocketHandlers(
     }
   });
 
+  // ========== AI 管理事件 ==========
+
+  socket.on('room:addAI', async (callback) => {
+    try {
+      const result = await roomManager.addAIPlayer(userId);
+      if (result.success && result.room && result.player) {
+        // 通知房间所有人（包括自己）有新玩家加入
+        io.to(result.room.roomId).emit('server:roomUpdate', result.room);
+      }
+      callback({ success: result.success, error: result.error, message: result.message });
+    } catch (err) {
+      console.error('[room:addAI] 错误:', err);
+      callback({ success: false, error: 'INTERNAL_ERROR', message: '添加AI失败' });
+    }
+  });
+
+  socket.on('room:removeAI', (data) => {
+    try {
+      const result = roomManager.removeAIPlayer(userId, data.targetUserId);
+      if (result.success && result.room) {
+        io.to(result.room.roomId).emit('server:roomUpdate', result.room);
+      }
+    } catch (err) {
+      console.error('[room:removeAI] 错误:', err);
+    }
+  });
+
+  socket.on('room:testAI', async (callback) => {
+    try {
+      const result = await testAIConnection();
+      callback({ success: result.success, message: result.message });
+    } catch (err) {
+      console.error('[room:testAI] 错误:', err);
+      callback({ success: false, message: 'AI 测试失败' });
+    }
+  });
+
+  // ========== 开始游戏 ==========
+
   socket.on('room:startGame', (callback) => {
     try {
       const result = roomManager.startGame(userId);
@@ -152,12 +216,13 @@ export function registerSocketHandlers(
       const room = result.room;
       const state = gm.getState();
 
-      // 绑定游戏回调
+      // 绑定游戏回调（含 AI 逻辑）
       bindGameCallbacks(io, gm, room.roomId, roomManager);
 
-      // 向每位玩家单独推送身份信息
+      // 向每位真人玩家单独推送身份信息（跳过 AI）
       for (const gamePlayer of state.players) {
-        const rp = room.players.find(p => p.userId === gamePlayer.userId);
+        if (roomManager.isAI(gamePlayer.userId)) continue;
+
         const user = roomManager.getUser(gamePlayer.userId);
         if (!user) continue;
 
@@ -249,6 +314,78 @@ export function registerSocketHandlers(
 
 // ========== 辅助函数 ==========
 
+function rebuildAnnouncements(state: import('../../shared/types/game').GameState): import('../../shared/types/socket').DayAnnouncementData[] {
+  const announcements: import('../../shared/types/socket').DayAnnouncementData[] = [];
+  const deathsByRound = new Map<number, { night: typeof state.history.deaths; exile: typeof state.history.deaths }>();
+
+  for (const death of state.history.deaths) {
+    if (!deathsByRound.has(death.round)) {
+      deathsByRound.set(death.round, { night: [], exile: [] });
+    }
+    const group = deathsByRound.get(death.round)!;
+    if (death.cause === 'exiled') {
+      group.exile.push(death);
+    } else {
+      group.night.push(death);
+    }
+  }
+
+  // 按轮次排列，每轮先夜晚公告再放逐公告
+  const rounds = Array.from(deathsByRound.keys()).sort((a, b) => a - b);
+  for (const round of rounds) {
+    const group = deathsByRound.get(round)!;
+    // 夜晚公告
+    if (group.night.length > 0) {
+      announcements.push({
+        round,
+        type: 'night',
+        deaths: group.night.map(d => ({
+          userId: d.userId,
+          seatNumber: d.seatNumber,
+          cause: d.cause,
+          relics: d.relics,
+        })),
+        peacefulNight: false,
+      });
+    }
+    // 放逐公告
+    for (const exile of group.exile) {
+      announcements.push({
+        round,
+        type: 'exile',
+        deaths: [{
+          userId: exile.userId,
+          seatNumber: exile.seatNumber,
+          cause: exile.cause,
+          relics: exile.relics,
+        }],
+        peacefulNight: false,
+      });
+    }
+  }
+
+  // 如果某轮夜晚没有死人（平安夜），也要补上
+  for (let r = 1; r <= state.round; r++) {
+    const hasNightAnnounce = announcements.some(a => a.round === r && a.type === 'night');
+    if (!hasNightAnnounce && r <= state.history.rounds.length) {
+      announcements.push({
+        round: r,
+        type: 'night',
+        deaths: [],
+        peacefulNight: true,
+      });
+    }
+  }
+
+  // 最终按 round 排序，同 round 内 night 在 exile 前
+  announcements.sort((a, b) => {
+    if (a.round !== b.round) return a.round - b.round;
+    return a.type === 'night' ? -1 : 1;
+  });
+
+  return announcements;
+}
+
 function getTeammates(
   players: { userId: string; seatNumber: number; role: string; faction: string }[],
   currentPlayer: { userId: string; faction: string }
@@ -258,6 +395,8 @@ function getTeammates(
     .filter(p => p.faction === 'evil' && p.userId !== currentPlayer.userId)
     .map(p => ({ userId: p.userId, seatNumber: p.seatNumber }));
 }
+
+// ========== 游戏回调绑定（含 AI 逻辑） ==========
 
 function bindGameCallbacks(
   io: IOServer,
@@ -273,6 +412,13 @@ function bindGameCallbacks(
   };
 
   gm.onNightActionPrompt = (targetUserId, roleName, targets, witchInfo) => {
+    // AI 玩家：调用 AIPlayerController 决策
+    if (roomManager.isAI(targetUserId)) {
+      handleAINightAction(gm, roomManager, roomId, targetUserId, roleName, targets, witchInfo);
+      return;
+    }
+
+    // 真人玩家：推送 socket 事件
     const user = roomManager.getUser(targetUserId);
     if (!user) return;
     const timeout = gm.getState().players.length > 0
@@ -290,14 +436,29 @@ function bindGameCallbacks(
     io.to(user.socketId).emit('server:nightAction', prompt);
   };
 
+  gm.onWolfVoteUpdate = (wolfUserIds, votes) => {
+    // 向所有存活的真人狼人推送队友的投票情况
+    for (const wolfId of wolfUserIds) {
+      if (roomManager.isAI(wolfId)) continue;
+      const user = roomManager.getUser(wolfId);
+      if (!user) continue;
+      io.to(user.socketId).emit('server:wolfVoteUpdate', { votes });
+    }
+  };
+
   gm.onInvestigateResult = (targetUserId, target, faction) => {
+    // AI 不需要接收查验结果推送（已在 Context 中获取）
+    if (roomManager.isAI(targetUserId)) return;
+
     const user = roomManager.getUser(targetUserId);
     if (!user) return;
     io.to(user.socketId).emit('server:investigateResult', { target, faction });
   };
 
-  gm.onDayAnnouncement = (deaths, peacefulNight) => {
+  gm.onDayAnnouncement = (deaths, peacefulNight, round, type) => {
     io.to(roomId).emit('server:dayAnnouncement', {
+      round,
+      type,
       deaths: deaths.map(d => ({
         userId: d.userId,
         seatNumber: d.seatNumber,
@@ -312,7 +473,7 @@ function bindGameCallbacks(
     const room = roomManager.getRoom(roomId);
     if (!room) return;
 
-    // 通知所有人当前发言者
+    // 通知所有真人当前发言者
     io.to(roomId).emit('server:markingTurn', {
       yourTurn: false,
       currentPlayer: targetUserId,
@@ -321,7 +482,13 @@ function bindGameCallbacks(
       availableIdentities: identities,
     });
 
-    // 单独通知当前发言者
+    // AI 玩家：调用 AIPlayerController 决策
+    if (roomManager.isAI(targetUserId)) {
+      handleAIMarking(gm, roomManager, roomId, targetUserId, evaluationMarkCount, identities);
+      return;
+    }
+
+    // 真人玩家：单独通知
     const user = roomManager.getUser(targetUserId);
     if (user) {
       io.to(user.socketId).emit('server:markingTurn', {
@@ -344,19 +511,23 @@ function bindGameCallbacks(
       timeout: room?.settings.timers?.voting || 30,
       candidates,
     });
+
+    // 所有 AI 玩家自动投票
+    handleAIVoting(gm, roomManager, roomId, candidates);
   };
 
   gm.onVotingResult = (votes, exiled, tie) => {
     io.to(roomId).emit('server:votingResult', { votes, exiled, tie });
   };
 
-  gm.onGameOver = (winner) => {
+  gm.onGameOver = (winner, reason) => {
     const state = gm.getState();
     const room = roomManager.getRoom(roomId);
     if (!room) return;
 
     io.to(roomId).emit('server:gameOver', {
       winner,
+      reason,
       players: state.players.map(p => ({
         userId: p.userId,
         nickname: room.players.find(rp => rp.userId === p.userId)?.nickname || '',
@@ -370,9 +541,101 @@ function bindGameCallbacks(
         rounds: state.history.rounds,
         marks: state.history.marks,
         votes: state.history.votes,
+        deaths: state.history.deaths,
       },
     });
 
+    // 保存 AI 对局日志
+    flushLogs(roomId);
+
     roomManager.endGame(roomId);
   };
+}
+
+// ========== AI 行动处理函数 ==========
+
+async function handleAINightAction(
+  gm: GameManager,
+  roomManager: RoomManager,
+  roomId: string,
+  aiUserId: string,
+  roleName: string,
+  targets: string[],
+  witchInfo?: { victim: string | null; hasAntidote: boolean; hasPoison: boolean; canSelfSave: boolean },
+): Promise<void> {
+  try {
+    const state = gm.getState();
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+
+    const aiPlayer = state.players.find(p => p.userId === aiUserId);
+    if (!aiPlayer) return;
+
+    const result = await decideNightAction(state, room, aiPlayer, targets, witchInfo);
+    console.log(`[AI] ${room.players.find(p => p.userId === aiUserId)?.nickname} 夜晚行动:`, result);
+
+    gm.handleNightAction(aiUserId, result);
+  } catch (err) {
+    console.error(`[AI] 夜晚行动出错(${aiUserId}):`, err);
+    // 超时会自动处理
+  }
+}
+
+async function handleAIMarking(
+  gm: GameManager,
+  roomManager: RoomManager,
+  roomId: string,
+  aiUserId: string,
+  evaluationMarkCount: number,
+  identities: string[],
+): Promise<void> {
+  try {
+    const state = gm.getState();
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+
+    const aiPlayer = state.players.find(p => p.userId === aiUserId);
+    if (!aiPlayer) return;
+
+    const result = await decideMarking(state, room, aiPlayer, evaluationMarkCount, identities);
+    console.log(`[AI] ${room.players.find(p => p.userId === aiUserId)?.nickname} 标记发言:`, result.identityMark.identity);
+
+    const marks: PlayerMarks = {
+      player: aiUserId,
+      round: state.round,
+      identityMark: result.identityMark,
+      evaluationMarks: result.evaluationMarks,
+    };
+    gm.handleSubmitMarks(aiUserId, marks);
+  } catch (err) {
+    console.error(`[AI] 标记发言出错(${aiUserId}):`, err);
+    // 超时会自动跳过
+  }
+}
+
+async function handleAIVoting(
+  gm: GameManager,
+  roomManager: RoomManager,
+  roomId: string,
+  candidates: string[],
+): Promise<void> {
+  const state = gm.getState();
+  const room = roomManager.getRoom(roomId);
+  if (!room) return;
+
+  // 找到所有存活的 AI 玩家
+  const aiVoters = state.players.filter(
+    p => p.alive && roomManager.isAI(p.userId)
+  );
+
+  for (const aiPlayer of aiVoters) {
+    try {
+      const target = await decideVote(state, room, aiPlayer, candidates);
+      console.log(`[AI] ${room.players.find(p => p.userId === aiPlayer.userId)?.nickname} 投票: → ${target}`);
+      gm.handleVote(aiPlayer.userId, target);
+    } catch (err) {
+      console.error(`[AI] 投票出错(${aiPlayer.userId}):`, err);
+      // 超时会随机投票
+    }
+  }
 }
