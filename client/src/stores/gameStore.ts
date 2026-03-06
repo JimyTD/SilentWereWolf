@@ -12,6 +12,13 @@ import type {
   ClientGameState,
 } from '@shared/types/socket';
 
+interface TriggerState {
+  type: 'hunter_shoot' | 'wolf_king_drag' | 'knight_duel' | 'fool_immunity' | null;
+  userId: string | null;
+  canAct: boolean;
+  targets: string[];
+}
+
 interface GameStoreState {
   // 是否在游戏中
   inGame: boolean;
@@ -46,6 +53,9 @@ interface GameStoreState {
   hasVoted: boolean;
   voteHistory: VotingResultData[];
 
+  // 触发链状态
+  triggerState: TriggerState;
+
   // 游戏结束
   gameOverData: GameOverData | null;
 
@@ -63,8 +73,21 @@ interface GameStoreState {
   setVotingStart: (data: VotingStartData) => void;
   setVotingResult: (data: VotingResultData) => void;
   setGameOver: (data: GameOverData) => void;
+  // 触发链 actions
+  setHunterTrigger: (canShoot: boolean) => void;
+  setWolfKingTrigger: () => void;
+  setKnightTurn: (canDuel: boolean) => void;
+  setFoolImmunity: (userId: string) => void;
+  clearTrigger: () => void;
   reset: () => void;
 }
+
+const initialTriggerState: TriggerState = {
+  type: null,
+  userId: null,
+  canAct: false,
+  targets: [],
+};
 
 const initialState = {
   inGame: false,
@@ -86,6 +109,7 @@ const initialState = {
   votingResult: null,
   hasVoted: false,
   voteHistory: [],
+  triggerState: initialTriggerState,
   gameOverData: null,
 };
 
@@ -113,6 +137,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       votingResult: null,
       hasVoted: false,
       voteHistory: [],
+      triggerState: initialTriggerState,
       gameOverData: null,
     }),
 
@@ -183,6 +208,56 @@ export const useGameStore = create<GameStoreState>((set) => ({
       }
       return { votingResult: data, players: updatedPlayers, voteHistory: [...state.voteHistory, data] };
     }),
+
+  // 触发链
+  setHunterTrigger: (canShoot) =>
+    set((state) => ({
+      triggerState: {
+        type: 'hunter_shoot',
+        userId: null,
+        canAct: canShoot,
+        targets: state.players.filter(p => p.alive).map(p => p.userId),
+      },
+    })),
+
+  setWolfKingTrigger: () =>
+    set((state) => ({
+      triggerState: {
+        type: 'wolf_king_drag',
+        userId: null,
+        canAct: true,
+        targets: state.players.filter(p => p.alive).map(p => p.userId),
+      },
+    })),
+
+  setKnightTurn: (canDuel) =>
+    set((state) => ({
+      triggerState: {
+        type: 'knight_duel',
+        userId: null,
+        canAct: canDuel,
+        targets: state.players.filter(p => p.alive).map(p => p.userId),
+      },
+    })),
+
+  setFoolImmunity: (userId) =>
+    set((state) => {
+      // 白痴免疫 → 恢复存活状态（前端之前在投票结果时标记死亡了）
+      const updatedPlayers = state.players.map(p =>
+        p.userId === userId ? { ...p, alive: true } : p
+      );
+      return {
+        triggerState: {
+          type: 'fool_immunity',
+          userId,
+          canAct: false,
+          targets: [],
+        },
+        players: updatedPlayers,
+      };
+    }),
+
+  clearTrigger: () => set({ triggerState: initialTriggerState }),
 
   setGameOver: (data) =>
     set({

@@ -12,7 +12,7 @@ const GAME_RULES_BRIEF = `你正在参与一局"静夜标记"狼人杀游戏。
 - 夜晚：各角色按顺序行动（守卫→狼人→女巫→预言家→守墓人）
 - 白天：依次标记发言（声称身份+评价他人），然后投票放逐一人
 - 标记发言时你需要声称自己的身份并给其他玩家贴标签
-- 投票时不能投自己`;
+- 投票时从候选人中选择一个你认为最可疑的玩家`;
 
 /**
  * 按角色生成策略指导（多种常见策略，不写死）
@@ -79,7 +79,13 @@ function getRoleStrategy(role: string, faction: string): string {
 - 查验策略C"验证声称"：如果有人声称神职身份，查验他确认真假
 - 发言策略A"明牌"：直接声称预言家公布查验结果，获取信任带节奏（但会成为狼人目标）
 - 发言策略B"潜水"：不暴露身份，暗中引导，等关键时刻再跳出来（更安全但影响力弱）
-- 如果你查到了狼人，一般应该公布结果推动投票`;
+- 如果你查到了狼人，一般应该公布结果推动投票
+
+⚠️ 查验结果是最可靠的信息：
+- 你亲自查验得到的阵营结果是100%准确的，优先级高于任何其他玩家的声称或标记
+- 投票时：绝对不能投你已查验为好人的玩家，即使其他人都说他是狼人
+- 投票时：如果你查验某人为狼人，应坚定投他，不被其他人的言论动摇
+- 标记时：查验结果应直接影响你的评价，查验为好人的标记为好人，查验为狼人的标记为狼人`;
 
     case ROLES.WITCH:
       return goodBase + `
@@ -290,10 +296,10 @@ export function getMarkingPrompt(params: MarkingPromptParams): string {
 评价身份选项：${[...availableIdentities, '狼人'].join('、')}
 
 请先分析当前局势：
-- 回顾标记记录和投票记录，哪些玩家行为可疑？
-- 结合你的私有信息（如查验结果、用药记录等），有哪些关键线索？
-- 你应该声称什么身份？为什么？
-- 你最怀疑谁是狼人？依据是什么？
+- 你目前掌握了哪些确定的信息？（私有信息如查验结果、用药记录等是最可靠的）
+- 有哪些历史记录（标记、投票）可以作为分析依据？
+- 信息是否充足？如果信息不足（比如第一轮没有历史数据），应保守评价，多标记"好人"，只在有明确依据时才标记"狼人"
+- 不要为了表现积极而随意指控他人为狼人，错误指控会误导好人阵营
 
 然后返回 JSON：
 {
@@ -310,19 +316,49 @@ export function getMarkingPrompt(params: MarkingPromptParams): string {
 身份使用中文，如：预言家、女巫、守卫、平民、好人、神职、狼人`;
 }
 
-export function getVotingPrompt(candidates: { userId: string; nickname: string; seatNumber: number }[]): string {
+// 投票分析偏好：给不同 AI 注入不同的分析角度，减少投票雪崩
+const VOTING_PERSONALITIES = [
+  // 偏重标记内容分析
+  `你的分析偏好：你更擅长从标记发言内容中找矛盾。重点关注：谁的声称前后不一致？谁的评价和事实对不上？有人声称相同的身份吗？`,
+  // 偏重投票行为分析
+  `你的分析偏好：你更擅长分析投票行为模式。重点关注：谁的投票总是和结果一致（可能是跟风狼）？谁从不投某些人（可能在保队友）？有没有可疑的投票同盟？`,
+  // 偏重沉默/低调玩家
+  `你的分析偏好：你倾向于关注低调的玩家。重点关注：谁说的话最少、评价最模糊？低调可能是在伪装。不要只看被多人指控的热门目标，也要考虑被忽略的玩家。`,
+  // 偏重死亡线索分析
+  `你的分析偏好：你更擅长从死亡记录和遗物中推理。重点关注：谁被狼人刀了——说明他可能对狼人有威胁，他之前指控过谁？遗物透露了什么信息？`,
+  // 偏重反多数派思考
+  `你的分析偏好：你倾向于独立思考，不轻易从众。如果很多人都指向同一个目标，你要想：这是因为证据确凿，还是被带节奏了？也许真正的狼人正在利用多数人的判断来甩锅。`,
+];
+
+export function getVotingPrompt(
+  candidates: { userId: string; nickname: string; seatNumber: number }[],
+  self?: { seatNumber: number; nickname: string },
+  personalityIndex?: number,
+): string {
   const targetList = candidates
     .map(t => `${t.seatNumber}号${t.nickname}(userId:"${t.userId}")`)
     .join('、');
 
-  return `现在是投票阶段，你需要投票放逐一名玩家。不能投自己。
-候选人：${targetList}
+  const selfReminder = self
+    ? `\n注意：你是${self.seatNumber}号${self.nickname}，候选人列表中没有你自己，你只能从以上候选人中选择。`
+    : '';
+
+  // 选择个性化分析偏好
+  const idx = personalityIndex !== undefined
+    ? personalityIndex % VOTING_PERSONALITIES.length
+    : Math.floor(Math.random() * VOTING_PERSONALITIES.length);
+  const personality = VOTING_PERSONALITIES[idx];
+
+  return `现在是投票阶段，你需要投票放逐一名玩家。
+候选人：${targetList}${selfReminder}
+
+${personality}
 
 请先分析：
-- 回顾本轮标记发言，谁的声称和评价最可疑？
-- 结合历史投票记录，谁的投票行为异常？
-- 有没有多人指向同一个嫌疑人？
-- 你掌握的私有信息（查验结果等）指向谁？
+- 【最高优先级】你的私有信息（查验结果、用药记录等）是最可靠的一手情报，必须首先考虑。如果你查验过某人是好人，绝对不能投他；如果查验过某人是狼人，应优先投他
+- 如果有查验结论等确凿证据指向某人，跟随证据投票是正确的
+- 如果没有确凿证据，请根据你自己的分析偏好独立判断，不要简单跟从多数人的意见
+- 回顾本轮标记发言，结合你的分析偏好找出可疑之处
 - 综合以上信息，你认为谁最可能是狼人？
 
 然后返回 JSON：

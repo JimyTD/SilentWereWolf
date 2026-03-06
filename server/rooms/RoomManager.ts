@@ -319,8 +319,8 @@ export class RoomManager {
       return { success: false, error: 'ROOM_FULL', message: '房间已满' };
     }
 
-    // 生成 AI 身份
-    const aiUserId = `ai-${uuidv4()}`;
+    // 生成 AI 身份（使用标准 UUID，不加前缀，避免 LLM 通过 userId 格式区分真人和 AI）
+    const aiUserId = uuidv4();
     const existingNames = room.players.map(p => p.nickname);
 
     // 尝试 LLM 取名，失败则用默认昵称池
@@ -558,7 +558,7 @@ export class RoomManager {
 
   getTotalPlayersFromSettings(settings: GameSettings): number {
     const roleConfig = settings.mode === 'preset' && settings.preset
-      ? PRESETS[settings.preset]
+      ? PRESETS[settings.preset].roles
       : settings.roles;
     if (!roleConfig) return 0;
     return Object.values(roleConfig as Record<string, number>).reduce((sum, count) => sum + count, 0);

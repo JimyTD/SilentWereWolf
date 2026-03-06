@@ -47,7 +47,7 @@ export async function callLLM(options: AICallOptions): Promise<AICallResult> {
         temperature,
       }),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('LLM 调用超时(5s)')), 5000)
+        setTimeout(() => reject(new Error('LLM 调用超时(30s)')), 30000)
       ),
     ]);
 

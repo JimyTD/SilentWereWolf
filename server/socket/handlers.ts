@@ -301,6 +301,44 @@ export function registerSocketHandlers(
     }
   });
 
+  // ========== 触发链事件 ==========
+
+  socket.on('client:hunterAction', (data) => {
+    try {
+      const user = roomManager.getUser(userId);
+      if (!user?.roomId) return;
+      const gm = roomManager.getGameManager(user.roomId);
+      if (!gm) return;
+      gm.handleHunterAction(userId, data.action, data.target);
+    } catch (err) {
+      console.error('[client:hunterAction] 错误:', err);
+    }
+  });
+
+  socket.on('client:knightAction', (data) => {
+    try {
+      const user = roomManager.getUser(userId);
+      if (!user?.roomId) return;
+      const gm = roomManager.getGameManager(user.roomId);
+      if (!gm) return;
+      gm.handleKnightAction(userId, data.action, data.target);
+    } catch (err) {
+      console.error('[client:knightAction] 错误:', err);
+    }
+  });
+
+  socket.on('client:wolfKingAction', (data) => {
+    try {
+      const user = roomManager.getUser(userId);
+      if (!user?.roomId) return;
+      const gm = roomManager.getGameManager(user.roomId);
+      if (!gm) return;
+      gm.handleWolfKingAction(userId, data.action, data.target);
+    } catch (err) {
+      console.error('[client:wolfKingAction] 错误:', err);
+    }
+  });
+
   // ========== 断线处理 ==========
 
   socket.on('disconnect', () => {
@@ -455,6 +493,15 @@ function bindGameCallbacks(
     io.to(user.socketId).emit('server:investigateResult', { target, faction });
   };
 
+  // 守墓人查验结果
+  gm.onAutopsyResult = (targetUserId, target, faction) => {
+    if (roomManager.isAI(targetUserId)) return;
+
+    const user = roomManager.getUser(targetUserId);
+    if (!user) return;
+    io.to(user.socketId).emit('server:autopsyResult', { target, faction });
+  };
+
   gm.onDayAnnouncement = (deaths, peacefulNight, round, type) => {
     io.to(roomId).emit('server:dayAnnouncement', {
       round,
@@ -520,6 +567,65 @@ function bindGameCallbacks(
     io.to(roomId).emit('server:votingResult', { votes, exiled, tie });
   };
 
+  // ========== 触发链回调 ==========
+
+  gm.onHunterTrigger = (targetUserId, canShoot, targets) => {
+    // AI 猎人自动决策
+    if (roomManager.isAI(targetUserId)) {
+      handleAIHunterAction(gm, roomManager, roomId, targetUserId, canShoot, targets);
+      return;
+    }
+
+    const user = roomManager.getUser(targetUserId);
+    if (!user) return;
+    io.to(user.socketId).emit('server:hunterTrigger', { canShoot, timeout: 30 });
+    // 通知所有人进入猎人阶段
+    io.to(roomId).emit('server:phaseChange', { phase: 'day_trigger', round: gm.getState().round });
+  };
+
+  gm.onHunterResult = (shooter, target, targetDeath) => {
+    io.to(roomId).emit('server:hunterResult', { shooter, target, targetDeath });
+  };
+
+  gm.onWolfKingTrigger = (targetUserId, targets) => {
+    // AI 白狼王自动决策
+    if (roomManager.isAI(targetUserId)) {
+      handleAIWolfKingAction(gm, roomManager, roomId, targetUserId, targets);
+      return;
+    }
+
+    const user = roomManager.getUser(targetUserId);
+    if (!user) return;
+    io.to(user.socketId).emit('server:wolfKingTrigger', { timeout: 30 });
+    io.to(roomId).emit('server:phaseChange', { phase: 'day_trigger', round: gm.getState().round });
+  };
+
+  gm.onWolfKingResult = (dragger, target) => {
+    io.to(roomId).emit('server:wolfKingResult', { dragger, target });
+  };
+
+  gm.onFoolImmunity = (foolUserId) => {
+    io.to(roomId).emit('server:foolImmunity', { userId: foolUserId });
+  };
+
+  gm.onKnightTurn = (targetUserId, canDuel, targets) => {
+    // AI 骑士自动决策
+    if (roomManager.isAI(targetUserId)) {
+      handleAIKnightAction(gm, roomManager, roomId, targetUserId, canDuel, targets);
+      return;
+    }
+
+    const user = roomManager.getUser(targetUserId);
+    if (!user) return;
+    io.to(user.socketId).emit('server:knightTurn', { canDuel, timeout: 30 });
+    // 通知所有人谁可以决斗
+    io.to(roomId).emit('server:phaseChange', { phase: 'day_knight', round: gm.getState().round });
+  };
+
+  gm.onDuelResult = (knightId, targetId, loserId) => {
+    io.to(roomId).emit('server:duelResult', { loser: loserId });
+  };
+
   gm.onGameOver = (winner, reason) => {
     const state = gm.getState();
     const room = roomManager.getRoom(roomId);
@@ -577,7 +683,6 @@ async function handleAINightAction(
     gm.handleNightAction(aiUserId, result);
   } catch (err) {
     console.error(`[AI] 夜晚行动出错(${aiUserId}):`, err);
-    // 超时会自动处理
   }
 }
 
@@ -609,7 +714,6 @@ async function handleAIMarking(
     gm.handleSubmitMarks(aiUserId, marks);
   } catch (err) {
     console.error(`[AI] 标记发言出错(${aiUserId}):`, err);
-    // 超时会自动跳过
   }
 }
 
@@ -635,7 +739,60 @@ async function handleAIVoting(
       gm.handleVote(aiPlayer.userId, target);
     } catch (err) {
       console.error(`[AI] 投票出错(${aiPlayer.userId}):`, err);
-      // 超时会随机投票
     }
+  }
+}
+
+// AI 猎人开枪决策
+async function handleAIHunterAction(
+  gm: GameManager,
+  roomManager: RoomManager,
+  _roomId: string,
+  aiUserId: string,
+  canShoot: boolean,
+  targets: string[],
+): Promise<void> {
+  // AI 猎人总是开枪，随机选一个目标
+  if (canShoot && targets.length > 0) {
+    const target = targets[Math.floor(Math.random() * targets.length)];
+    gm.handleHunterAction(aiUserId, 'shoot', target);
+  } else {
+    gm.handleHunterAction(aiUserId, 'skip');
+  }
+}
+
+// AI 白狼王带人决策
+async function handleAIWolfKingAction(
+  gm: GameManager,
+  roomManager: RoomManager,
+  _roomId: string,
+  aiUserId: string,
+  targets: string[],
+): Promise<void> {
+  // AI 白狼王总是带人，随机选一个目标
+  if (targets.length > 0) {
+    const target = targets[Math.floor(Math.random() * targets.length)];
+    gm.handleWolfKingAction(aiUserId, 'drag', target);
+  } else {
+    gm.handleWolfKingAction(aiUserId, 'skip');
+  }
+}
+
+// AI 骑士决斗决策
+async function handleAIKnightAction(
+  gm: GameManager,
+  roomManager: RoomManager,
+  _roomId: string,
+  aiUserId: string,
+  canDuel: boolean,
+  targets: string[],
+): Promise<void> {
+  // AI 骑士：第一轮不决斗，后续随机决定是否决斗
+  const state = gm.getState();
+  if (canDuel && targets.length > 0 && state.round > 1 && Math.random() > 0.5) {
+    const target = targets[Math.floor(Math.random() * targets.length)];
+    gm.handleKnightAction(aiUserId, 'duel', target);
+  } else {
+    gm.handleKnightAction(aiUserId, 'skip');
   }
 }

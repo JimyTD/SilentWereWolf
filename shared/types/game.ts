@@ -131,6 +131,9 @@ export interface PendingTrigger {
   timeout: number;
 }
 
+// ========== 胜利条件 ==========
+export type WinCondition = 'edge' | 'city';
+
 // ========== 游戏配置 ==========
 export interface GameSettings {
   mode: 'preset' | 'custom';
@@ -147,4 +150,5 @@ export interface GameSettings {
   };
   lastWords: boolean;
   deepMode: boolean;
+  winCondition: WinCondition;
 }

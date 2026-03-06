@@ -16,6 +16,7 @@ const PHASE_LABELS: Record<string, { text: string; color: string; bg: string }> 
 const ROLE_LABELS: Record<string, string> = {
   werewolf: '狼人', seer: '预言家', witch: '女巫', hunter: '猎人',
   guard: '守卫', villager: '平民', wolfKing: '白狼王',
+  gravedigger: '守墓人', fool: '白痴', knight: '骑士',
 };
 
 const FACTION_LABELS: Record<string, { text: string; color: string }> = {

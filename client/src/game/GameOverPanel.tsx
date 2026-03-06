@@ -17,6 +17,7 @@ const REASON_LABELS: Record<string, string> = {
   wolves_eliminated: '所有狼人已出局',
   specials_eliminated: '所有神职已出局（屠边）',
   villagers_eliminated: '所有平民已出局（屠边）',
+  good_eliminated: '所有好人已出局（屠城）',
   exile: '投票放逐',
 };
 

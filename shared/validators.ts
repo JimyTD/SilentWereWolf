@@ -11,7 +11,7 @@ export function validateGameSettings(settings: GameSettings): { valid: boolean; 
     if (!settings.preset || !PRESETS[settings.preset]) {
       return { valid: false, error: '无效的预设模板' };
     }
-    roles = PRESETS[settings.preset];
+    roles = PRESETS[settings.preset].roles;
   } else {
     roles = settings.roles;
   }
@@ -56,7 +56,7 @@ export function validateGameSettings(settings: GameSettings): { valid: boolean; 
  */
 export function getRolesFromSettings(settings: GameSettings): string[] {
   const roleConfig = settings.mode === 'preset' && settings.preset
-    ? PRESETS[settings.preset]
+    ? PRESETS[settings.preset].roles
     : settings.roles;
 
   const roles: string[] = [];

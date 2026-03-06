@@ -1,23 +1,27 @@
 import { ROLES } from '../../../shared/constants';
 import { BaseRole } from './BaseRole';
 import { Werewolf } from './Werewolf';
+import { WolfKing } from './WolfKing';
 import { Seer } from './Seer';
 import { Witch } from './Witch';
 import { Guard } from './Guard';
+import { Hunter } from './Hunter';
+import { Gravedigger } from './Gravedigger';
+import { Fool } from './Fool';
+import { Knight } from './Knight';
 import { Villager } from './Villager';
 
 const roleMap: Record<string, new () => BaseRole> = {
   [ROLES.WEREWOLF]: Werewolf,
-  [ROLES.WOLF_KING]: Werewolf, // 首版白狼王复用狼人逻辑，次版扩展
+  [ROLES.WOLF_KING]: WolfKing,
   [ROLES.SEER]: Seer,
   [ROLES.WITCH]: Witch,
   [ROLES.GUARD]: Guard,
+  [ROLES.HUNTER]: Hunter,
+  [ROLES.GRAVEDIGGER]: Gravedigger,
+  [ROLES.FOOL]: Fool,
+  [ROLES.KNIGHT]: Knight,
   [ROLES.VILLAGER]: Villager,
-  // 次版角色占位：
-  // [ROLES.HUNTER]: Hunter,
-  // [ROLES.GRAVEDIGGER]: Gravedigger,
-  // [ROLES.FOOL]: Fool,
-  // [ROLES.KNIGHT]: Knight,
 };
 
 export function createRole(roleName: string): BaseRole {

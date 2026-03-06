@@ -189,7 +189,7 @@ export async function decideNightAction(
   // Fallback
   fallback = true;
   console.warn(`[AIController] ${ctx.nickname} 夜晚行动 fallback`);
-  return fallbackNightAction(aiPlayer.role, availableTargets);
+  return fallbackNightAction(aiPlayer.role, availableTargets, witchInfo, state);
 }
 
 function buildNightActionResult(role: string, parsed: Record<string, unknown>, validTargets: string[]): NightActionResult {
@@ -241,7 +241,12 @@ function buildNightActionResult(role: string, parsed: Record<string, unknown>, v
   }
 }
 
-function fallbackNightAction(role: string, validTargets: string[]): NightActionResult {
+function fallbackNightAction(
+  role: string,
+  validTargets: string[],
+  witchInfo?: { victim: string | null; hasAntidote: boolean; hasPoison: boolean; canSelfSave: boolean },
+  state?: GameState,
+): NightActionResult {
   const randomTarget = validTargets.length > 0
     ? validTargets[Math.floor(Math.random() * validTargets.length)]
     : undefined;
@@ -252,8 +257,17 @@ function fallbackNightAction(role: string, validTargets: string[]): NightActionR
       return { action: 'attack', target: randomTarget };
     case ROLES.SEER:
       return { action: 'investigate', target: randomTarget };
-    case ROLES.WITCH:
+    case ROLES.WITCH: {
+      // 女巫智能兜底：第一轮有人被杀且有解药 → 默认救人
+      if (witchInfo?.victim && witchInfo.hasAntidote) {
+        const round = state?.round ?? 1;
+        // 第一轮大概率救人（80%），后续轮次保守不救（保留解药）
+        if (round === 1 || Math.random() < 0.3) {
+          return { action: 'usePotion', potion: 'antidote' };
+        }
+      }
       return { action: 'usePotion', potion: 'none' };
+    }
     case ROLES.GUARD:
       return { action: 'guard', target: randomTarget };
     case ROLES.GRAVEDIGGER:
@@ -290,7 +304,17 @@ export async function decideMarking(
       seatNumber: p.seatNumber,
     }));
 
-  const availableReasons = ['直觉判断(intuition)', '投票分析(vote_analysis)', '标记分析(mark_analysis)', '日志推理(log_reasoning)'];
+  // 根据实际历史数据动态提供可选理由，避免AI在无数据时凭空使用分析类理由
+  const availableReasons = ['直觉判断(intuition)'];
+  if (state.history.votes.length > 0) {
+    availableReasons.push('投票分析(vote_analysis)');
+  }
+  if (state.history.marks.length > 0) {
+    availableReasons.push('标记分析(mark_analysis)');
+  }
+  if (state.history.deaths.length > 0) {
+    availableReasons.push('日志推理(log_reasoning)');
+  }
   // 特殊理由仅对应角色可用
   if (aiPlayer.role === ROLES.SEER || aiPlayer.role === ROLES.GRAVEDIGGER) {
     availableReasons.push('查验结论(investigation)');
@@ -343,7 +367,28 @@ export async function decideMarking(
   }
 
   // Fallback
-  return fallbackMarking(aiPlayer, targets, evaluationMarkCount, availableIdentities);
+  return fallbackMarking(aiPlayer, targets, evaluationMarkCount, availableIdentities, state);
+}
+
+// 中文理由→英文key映射，容错AI返回中文的情况
+const REASON_CN_TO_EN: Record<string, string> = {
+  '直觉判断': COMMON_REASONS.INTUITION,
+  '投票分析': COMMON_REASONS.VOTE_ANALYSIS,
+  '标记分析': COMMON_REASONS.MARK_ANALYSIS,
+  '日志推理': COMMON_REASONS.LOG_REASONING,
+  '查验结论': SPECIAL_REASONS.INVESTIGATION,
+  '用药结果': SPECIAL_REASONS.POTION_RESULT,
+};
+
+function normalizeReason(raw: string, validReasons: string[]): MarkReason {
+  if (validReasons.includes(raw)) return raw as MarkReason;
+  // 尝试中文映射
+  const mapped = REASON_CN_TO_EN[raw];
+  if (mapped && validReasons.includes(mapped)) return mapped as MarkReason;
+  // 尝试从 "查验结论(investigation)" 格式中提取英文key
+  const match = raw.match(/\((\w+)\)/);
+  if (match && validReasons.includes(match[1])) return match[1] as MarkReason;
+  return COMMON_REASONS.INTUITION as MarkReason;
 }
 
 function buildMarkingResult(
@@ -356,9 +401,7 @@ function buildMarkingResult(
 
   const identity = typeof parsed.identity === 'string' ? parsed.identity : '好人';
   const parsedReason = typeof parsed.reason === 'string' ? parsed.reason : '';
-  const reason: MarkReason = validReasons.includes(parsedReason)
-    ? parsedReason as MarkReason
-    : COMMON_REASONS.INTUITION;
+  const reason: MarkReason = normalizeReason(parsedReason, validReasons);
 
   const evaluations = (parsed.evaluations as Array<Record<string, unknown>>)
     .slice(0, evalCount)
@@ -368,7 +411,7 @@ function buildMarkingResult(
       return {
         target: e.target as string,
         identity: typeof e.identity === 'string' ? e.identity : '好人',
-        reason: (validReasons.includes(eReason) ? eReason : COMMON_REASONS.INTUITION) as MarkReason,
+        reason: normalizeReason(eReason, validReasons),
       };
     });
 
@@ -399,17 +442,84 @@ function fallbackMarking(
   targets: { userId: string; nickname: string; seatNumber: number }[],
   evalCount: number,
   availableIdentities: string[],
+  state?: GameState,
 ): MarkingResult {
-  const identity = aiPlayer.faction === 'good' ? '好人' : '平民';
   const shuffled = [...targets].sort(() => Math.random() - 0.5);
-  const evaluations = shuffled.slice(0, evalCount).map(t => ({
-    target: t.userId,
-    identity: '好人',
-    reason: COMMON_REASONS.INTUITION as EvaluationMark['reason'],
-  }));
+
+  // 从通用理由中随机选一个（不总是 intuition）
+  const commonReasons: MarkReason[] = [
+    COMMON_REASONS.INTUITION,
+    COMMON_REASONS.VOTE_ANALYSIS,
+    COMMON_REASONS.MARK_ANALYSIS,
+    COMMON_REASONS.LOG_REASONING,
+  ];
+  const pickReason = (): MarkReason => commonReasons[Math.floor(Math.random() * commonReasons.length)];
+
+  // 自报身份：好人阵营随机选 "好人" 或具体身份（但神职不轻易暴露）
+  // 狼人阵营随机选 "好人" 或 "平民" 伪装
+  let identity: string;
+  if (aiPlayer.faction === 'good') {
+    // 好人阵营：平民直说，神职一般隐藏（30%概率暴露真实身份）
+    if (aiPlayer.role === ROLES.VILLAGER) {
+      identity = Math.random() < 0.5 ? '平民' : '好人';
+    } else {
+      identity = Math.random() < 0.3 ? aiPlayer.role : '好人';
+    }
+  } else {
+    // 狼人阵营伪装：随机选平民或好人
+    identity = Math.random() < 0.6 ? '平民' : '好人';
+  }
+
+  // 基于历史标记统计"被标记为狼人"次数，作为嫌疑参考
+  const suspicionCount = new Map<string, number>();
+  if (state) {
+    for (const mark of state.history.marks) {
+      for (const ev of mark.evaluationMarks) {
+        if (ev.identity === '狼人') {
+          suspicionCount.set(ev.target, (suspicionCount.get(ev.target) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  const evaluations: EvaluationMark[] = [];
+  const evalTargets = shuffled.slice(0, evalCount);
+
+  if (aiPlayer.faction === 'evil') {
+    // 狼人兜底：随机标记 1 个非队友为"狼人"带节奏，其余标记为好人
+    const nonTeammates = evalTargets.filter(t => {
+      if (!state) return true;
+      const tp = state.players.find(p => p.userId === t.userId);
+      return tp?.faction !== 'evil';
+    });
+    const accuseTarget = nonTeammates.length > 0
+      ? nonTeammates[Math.floor(Math.random() * nonTeammates.length)]
+      : null;
+
+    for (const t of evalTargets) {
+      if (accuseTarget && t.userId === accuseTarget.userId && Math.random() < 0.6) {
+        evaluations.push({ target: t.userId, identity: '狼人', reason: pickReason() });
+      } else {
+        evaluations.push({ target: t.userId, identity: '好人', reason: pickReason() });
+      }
+    }
+  } else {
+    // 好人兜底：根据嫌疑度决定标记
+    for (const t of evalTargets) {
+      const sus = suspicionCount.get(t.userId) || 0;
+      // 被多人标记为狼人的目标，有更高概率也标记为狼人
+      if (sus >= 2 && Math.random() < 0.5) {
+        evaluations.push({ target: t.userId, identity: '狼人', reason: COMMON_REASONS.MARK_ANALYSIS });
+      } else if (sus >= 1 && Math.random() < 0.3) {
+        evaluations.push({ target: t.userId, identity: '狼人', reason: pickReason() });
+      } else {
+        evaluations.push({ target: t.userId, identity: '好人', reason: pickReason() });
+      }
+    }
+  }
 
   return {
-    identityMark: { identity, reason: COMMON_REASONS.INTUITION },
+    identityMark: { identity, reason: pickReason() },
     evaluationMarks: evaluations,
   };
 }
@@ -434,7 +544,10 @@ export async function decideVote(
     return { userId, nickname, seatNumber: p?.seatNumber || 0 };
   });
 
-  const actionPrompt = getVotingPrompt(targetDetails);
+  const actionPrompt = getVotingPrompt(targetDetails, {
+    seatNumber: ctx.seatNumber,
+    nickname: ctx.nickname,
+  }, aiPlayer.seatNumber);
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
   await sleep(getRandomDelay('voting'));
@@ -471,7 +584,53 @@ export async function decideVote(
     return parsed.target;
   }
 
-  // Fallback: 随机投
+  // Fallback: 基于策略投票而非纯随机
+  return fallbackVote(state, aiPlayer, validCandidates);
+}
+
+/**
+ * 投票兜底策略：
+ * - 狼人：不投队友，优先投被标记为狼人次数最少（被好人保护）的非队友
+ * - 好人：优先投被多人标记为狼人的目标
+ */
+function fallbackVote(state: GameState, aiPlayer: GamePlayer, validCandidates: string[]): string {
+  // 统计每个候选人被标记为"狼人"的次数
+  const wolfMarkCount = new Map<string, number>();
+  for (const cand of validCandidates) {
+    wolfMarkCount.set(cand, 0);
+  }
+  for (const mark of state.history.marks) {
+    for (const ev of mark.evaluationMarks) {
+      if (ev.identity === '狼人' && wolfMarkCount.has(ev.target)) {
+        wolfMarkCount.set(ev.target, (wolfMarkCount.get(ev.target) || 0) + 1);
+      }
+    }
+  }
+
+  if (aiPlayer.faction === 'evil') {
+    // 狼人：排除队友，从剩余候选中随机投
+    const nonTeammates = validCandidates.filter(c => {
+      const p = state.players.find(pl => pl.userId === c);
+      return p?.faction !== 'evil';
+    });
+    const pool = nonTeammates.length > 0 ? nonTeammates : validCandidates;
+    // 优先投被多人标记为好人（嫌疑低→对狼人威胁大）的目标，加一点随机性
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  // 好人：优先投被标记为狼人次数最多的候选人
+  const sorted = [...validCandidates].sort((a, b) => {
+    return (wolfMarkCount.get(b) || 0) - (wolfMarkCount.get(a) || 0);
+  });
+  // 最高嫌疑值
+  const maxSus = wolfMarkCount.get(sorted[0]) || 0;
+  if (maxSus > 0) {
+    // 在最高嫌疑的人中随机选一个
+    const topSuspects = sorted.filter(c => (wolfMarkCount.get(c) || 0) === maxSus);
+    return topSuspects[Math.floor(Math.random() * topSuspects.length)];
+  }
+
+  // 没有任何人被标记为狼人，随机投
   return validCandidates[Math.floor(Math.random() * validCandidates.length)];
 }
 

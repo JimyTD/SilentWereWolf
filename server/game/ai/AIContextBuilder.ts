@@ -277,8 +277,11 @@ export function contextToText(ctx: AIContext): string {
   if (ctx.deadPlayers.length > 0) {
     lines.push(`=== 死亡记录 ===`);
     for (const d of ctx.deadPlayers) {
-      const relicStr = d.relics.length > 0 ? `，遗物：${d.relics.join('、')}` : '';
+      const relicStr = d.relics.length > 0 ? `，遗物：${d.relics.map(relicLabel).join('、')}` : '';
       lines.push(`第${d.round}轮 ${d.seatNumber}号${d.nickname} ${causeLabel(d.cause)}${relicStr}`);
+    }
+    if (ctx.deadPlayers.some(d => d.relics.length > 0)) {
+      lines.push(`（遗物说明：月光石数值=该玩家被夜间行动造访的总次数，包括被刀、被查验、被守护、被用药；天平徽章"平衡"=左右邻座同阵营，"失衡"=左右邻座不同阵营；猎犬哨数值=该玩家死亡时存活的狼人数量）`);
     }
     lines.push('');
   }
@@ -351,6 +354,16 @@ function causeLabel(cause: string): string {
     guardWitchClash: '同守同救出局',
   };
   return map[cause] || cause;
+}
+
+function relicLabel(relic: string): string {
+  // 将 "moonstone(1)" → "月光石(1)", "balance(balanced)" → "天平徽章(平衡)" 等
+  return relic
+    .replace('moonstone', '月光石')
+    .replace('balance', '天平徽章')
+    .replace('houndWhistle', '猎犬哨')
+    .replace('balanced', '平衡')
+    .replace('unbalanced', '失衡');
 }
 
 function reasonLabel(reason: string): string {

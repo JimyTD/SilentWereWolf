@@ -1,28 +1,35 @@
-import type { GameState, GamePlayer, DeathRecord, NightActions } from '../../shared/types/game';
+import type { GameState, GamePlayer, DeathRecord, NightActions, WinCondition } from '../../shared/types/game';
 import { ROLES, FACTIONS, SPECIAL_ROLES, DEATH_CAUSE, ROLE_FACTION } from '../../shared/constants';
 
 export interface WinResult {
   winner: 'good' | 'evil';
-  reason: 'wolves_eliminated' | 'specials_eliminated' | 'villagers_eliminated';
+  reason: 'wolves_eliminated' | 'specials_eliminated' | 'villagers_eliminated' | 'good_eliminated';
 }
 
 /**
  * 胜负判定
+ * @param winCondition 'edge' = 屠边（杀光神职或平民），'city' = 屠城（杀光所有好人）
  * 返回 WinResult | null（游戏继续）
  */
-export function checkWinCondition(gameState: GameState): WinResult | null {
+export function checkWinCondition(gameState: GameState, winCondition: WinCondition = 'edge'): WinResult | null {
   const alivePlayers = gameState.players.filter(p => p.alive);
   const aliveWolves = alivePlayers.filter(p => p.faction === FACTIONS.EVIL);
   const aliveGood = alivePlayers.filter(p => p.faction === FACTIONS.GOOD);
-  const aliveVillagers = alivePlayers.filter(p => p.role === ROLES.VILLAGER);
-  const aliveSpecials = aliveGood.filter(p => SPECIAL_ROLES.has(p.role as string));
 
   // 好人胜：所有狼人出局
   if (aliveWolves.length === 0) return { winner: FACTIONS.GOOD, reason: 'wolves_eliminated' };
 
-  // 狼人胜（屠边）：所有神职出局 或 所有平民出局
-  if (aliveSpecials.length === 0 && aliveGood.length > 0) return { winner: FACTIONS.EVIL, reason: 'specials_eliminated' };
-  if (aliveVillagers.length === 0 && aliveGood.length > 0) return { winner: FACTIONS.EVIL, reason: 'villagers_eliminated' };
+  if (winCondition === 'city') {
+    // 屠城：所有好人出局
+    if (aliveGood.length === 0) return { winner: FACTIONS.EVIL, reason: 'good_eliminated' };
+  } else {
+    // 屠边：所有神职出局 或 所有平民出局
+    const aliveVillagers = alivePlayers.filter(p => p.role === ROLES.VILLAGER);
+    const aliveSpecials = aliveGood.filter(p => SPECIAL_ROLES.has(p.role as string));
+
+    if (aliveSpecials.length === 0 && aliveGood.length > 0) return { winner: FACTIONS.EVIL, reason: 'specials_eliminated' };
+    if (aliveVillagers.length === 0 && aliveGood.length > 0) return { winner: FACTIONS.EVIL, reason: 'villagers_eliminated' };
+  }
 
   return null;
 }
@@ -175,7 +182,7 @@ export function getAvailableIdentities(gameState: GameState): string[] {
   const identities: string[] = ['神职', '好人'];
   const rolesInGame = new Set(gameState.players.map(p => p.role));
 
-  // 只显示当局包含的具体角色
+  // 根据当局板子包含的角色动态生成选项
   if (rolesInGame.has(ROLES.SEER)) identities.push('预言家');
   if (rolesInGame.has(ROLES.WITCH)) identities.push('女巫');
   if (rolesInGame.has(ROLES.HUNTER)) identities.push('猎人');
@@ -183,6 +190,7 @@ export function getAvailableIdentities(gameState: GameState): string[] {
   if (rolesInGame.has(ROLES.GRAVEDIGGER)) identities.push('守墓人');
   if (rolesInGame.has(ROLES.FOOL)) identities.push('白痴');
   if (rolesInGame.has(ROLES.KNIGHT)) identities.push('骑士');
+  if (rolesInGame.has(ROLES.VILLAGER)) identities.push('平民');
 
   return identities;
 }

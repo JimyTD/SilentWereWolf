@@ -98,35 +98,153 @@ export const SPECIAL_REASONS = {
 } as const;
 
 // ========== 预设模板 ==========
-export const PRESETS: Record<string, Record<string, number>> = {
+export interface PresetConfig {
+  roles: Record<string, number>;
+  winCondition: 'edge' | 'city';
+}
+
+export const PRESETS: Record<string, PresetConfig> = {
   '4standard': {
-    [ROLES.WEREWOLF]: 1,
-    [ROLES.GUARD]: 1,
-    [ROLES.WITCH]: 1,
-    [ROLES.VILLAGER]: 1,
+    roles: {
+      [ROLES.WEREWOLF]: 1,
+      [ROLES.GUARD]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.VILLAGER]: 1,
+    },
+    winCondition: 'edge',
   },
   '5standard': {
-    [ROLES.WEREWOLF]: 1,
-    [ROLES.SEER]: 1,
-    [ROLES.WITCH]: 1,
-    [ROLES.VILLAGER]: 2,
+    roles: {
+      [ROLES.WEREWOLF]: 1,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.VILLAGER]: 2,
+    },
+    winCondition: 'edge',
   },
   '6standard': {
-    [ROLES.WEREWOLF]: 2,
-    [ROLES.SEER]: 1,
-    [ROLES.WITCH]: 1,
-    [ROLES.HUNTER]: 1,
-    [ROLES.VILLAGER]: 1,
+    roles: {
+      [ROLES.WEREWOLF]: 2,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.VILLAGER]: 2,
+    },
+    winCondition: 'city',
+  },
+  '6gods': {
+    roles: {
+      [ROLES.WEREWOLF]: 2,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.HUNTER]: 1,
+      [ROLES.VILLAGER]: 1,
+    },
+    winCondition: 'edge',
+  },
+  '7standard': {
+    roles: {
+      [ROLES.WEREWOLF]: 2,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.HUNTER]: 1,
+      [ROLES.VILLAGER]: 2,
+    },
+    winCondition: 'edge',
+  },
+  '8wolfking': {
+    roles: {
+      [ROLES.WOLF_KING]: 1,
+      [ROLES.WEREWOLF]: 2,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.HUNTER]: 1,
+      [ROLES.VILLAGER]: 2,
+    },
+    winCondition: 'edge',
+  },
+  '8knight': {
+    roles: {
+      [ROLES.WEREWOLF]: 2,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.KNIGHT]: 1,
+      [ROLES.FOOL]: 1,
+      [ROLES.VILLAGER]: 2,
+    },
+    winCondition: 'edge',
   },
   '9standard': {
-    [ROLES.WEREWOLF]: 3,
-    [ROLES.SEER]: 1,
-    [ROLES.WITCH]: 1,
-    [ROLES.HUNTER]: 1,
-    [ROLES.GUARD]: 1,
-    [ROLES.VILLAGER]: 2,
+    roles: {
+      [ROLES.WEREWOLF]: 3,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.HUNTER]: 1,
+      [ROLES.VILLAGER]: 3,
+    },
+    winCondition: 'edge',
+  },
+  '9grave': {
+    roles: {
+      [ROLES.WEREWOLF]: 3,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.HUNTER]: 1,
+      [ROLES.GRAVEDIGGER]: 1,
+      [ROLES.VILLAGER]: 2,
+    },
+    winCondition: 'edge',
+  },
+  '10guard': {
+    roles: {
+      [ROLES.WEREWOLF]: 3,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.HUNTER]: 1,
+      [ROLES.GUARD]: 1,
+      [ROLES.VILLAGER]: 3,
+    },
+    winCondition: 'edge',
+  },
+  '12standard': {
+    roles: {
+      [ROLES.WEREWOLF]: 4,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.HUNTER]: 1,
+      [ROLES.GUARD]: 1,
+      [ROLES.VILLAGER]: 4,
+    },
+    winCondition: 'edge',
+  },
+  '12full': {
+    roles: {
+      [ROLES.WOLF_KING]: 1,
+      [ROLES.WEREWOLF]: 3,
+      [ROLES.SEER]: 1,
+      [ROLES.WITCH]: 1,
+      [ROLES.HUNTER]: 1,
+      [ROLES.GRAVEDIGGER]: 1,
+      [ROLES.KNIGHT]: 1,
+      [ROLES.FOOL]: 1,
+      [ROLES.VILLAGER]: 2,
+    },
+    winCondition: 'edge',
   },
 };
+
+// 预设模板中实际可用的角色（已实现角色处理器的）
+export const AVAILABLE_ROLES_FOR_CUSTOM: string[] = [
+  ROLES.WEREWOLF,
+  ROLES.WOLF_KING,
+  ROLES.SEER,
+  ROLES.WITCH,
+  ROLES.HUNTER,
+  ROLES.GUARD,
+  ROLES.GRAVEDIGGER,
+  ROLES.FOOL,
+  ROLES.KNIGHT,
+  ROLES.VILLAGER,
+];
 
 // 死因枚举
 export const DEATH_CAUSE = {

@@ -99,6 +99,11 @@ export function useSocket() {
       useGameStore.getState().addInvestigation(data.target, data.faction);
     });
 
+    // 守墓人查验结果（复用同一个 investigation 列表）
+    socket.on('server:autopsyResult', (data) => {
+      useGameStore.getState().addInvestigation(data.target, data.faction);
+    });
+
     socket.on('server:dayAnnouncement', (data) => {
       useGameStore.getState().addAnnouncement(data);
     });
@@ -117,6 +122,43 @@ export function useSocket() {
 
     socket.on('server:votingResult', (data) => {
       useGameStore.getState().setVotingResult(data);
+    });
+
+    // ========== 触发链事件 ==========
+
+    socket.on('server:hunterTrigger', (data) => {
+      useGameStore.getState().setHunterTrigger(data.canShoot);
+    });
+
+    socket.on('server:hunterResult', (data) => {
+      console.log('[Socket] 猎人开枪结果:', data);
+      useGameStore.getState().clearTrigger();
+    });
+
+    socket.on('server:wolfKingTrigger', (_data) => {
+      useGameStore.getState().setWolfKingTrigger();
+    });
+
+    socket.on('server:wolfKingResult', (data) => {
+      console.log('[Socket] 白狼王带人结果:', data);
+      useGameStore.getState().clearTrigger();
+    });
+
+    socket.on('server:knightTurn', (data) => {
+      useGameStore.getState().setKnightTurn(data.canDuel);
+    });
+
+    socket.on('server:duelResult', (data) => {
+      console.log('[Socket] 决斗结果:', data);
+      useGameStore.getState().clearTrigger();
+    });
+
+    socket.on('server:foolImmunity', (data) => {
+      useGameStore.getState().setFoolImmunity(data.userId);
+      // 短暂显示后清除
+      setTimeout(() => {
+        useGameStore.getState().clearTrigger();
+      }, 3000);
     });
 
     socket.on('server:gameOver', (data) => {

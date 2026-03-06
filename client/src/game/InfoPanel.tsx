@@ -87,7 +87,7 @@ export default function InfoPanel() {
                             {playerLabel(d.userId, players)} 出局
                           </span>
                           <span className="text-gray-600 text-xs">
-                            {d.cause === 'exiled' ? '(放逐)' : d.cause === 'attacked' ? '(夜杀)' : d.cause === 'poisoned' ? '(毒杀)' : `(${d.cause})`}
+                            {d.cause === 'exiled' ? '(放逐)' : d.cause === 'attacked' ? '(夜杀)' : d.cause === 'poisoned' ? '(毒杀)' : d.cause === 'shot' ? '(猎人射杀)' : d.cause === 'wolfKingDrag' ? '(白狼王带走)' : d.cause === 'duel' ? '(决斗)' : d.cause === 'guardWitchClash' ? '(同守同救)' : `(${d.cause})`}
                           </span>
                         </div>
                         {d.relics.length > 0 && (

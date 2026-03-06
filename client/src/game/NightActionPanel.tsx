@@ -6,7 +6,8 @@ import { useRoomStore } from '../stores/roomStore';
 
 const ROLE_LABELS: Record<string, string> = {
   werewolf: '狼人', seer: '预言家', witch: '女巫', guard: '守卫',
-  villager: '平民', wolfKing: '白狼王',
+  villager: '平民', wolfKing: '白狼王', gravedigger: '守墓人',
+  hunter: '猎人', fool: '白痴', knight: '骑士',
 };
 
 export default function NightActionPanel() {
@@ -51,6 +52,11 @@ export default function NightActionPanel() {
         action: 'usePotion',
         potion: selectedPotion as 'antidote' | 'poison' | 'none',
         target: selectedPotion === 'poison' ? selectedTarget || undefined : undefined,
+      });
+    } else if (myRole === 'gravedigger') {
+      socket.emit('client:nightAction', {
+        action: 'autopsy',
+        target: selectedTarget || undefined,
       });
     } else {
       socket.emit('client:nightAction', {

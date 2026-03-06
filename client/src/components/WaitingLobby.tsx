@@ -187,7 +187,16 @@ export default function WaitingLobby({ room }: Props) {
 
         {/* 角色配置 */}
         <div className="bg-gray-800 rounded-xl p-5 mb-6">
-          <h3 className="text-white font-semibold mb-3">角色配置</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-white font-semibold">角色配置</h3>
+            <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
+              room.settings.winCondition === 'edge'
+                ? 'bg-red-500/20 text-red-300 border border-red-500/30'
+                : 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+            }`}>
+              {room.settings.winCondition === 'edge' ? '屠边模式' : '屠城模式'}
+            </span>
+          </div>
           <div className="flex flex-wrap gap-2">
             {Object.entries(room.settings.roles)
               .filter(([_, count]) => count > 0)
@@ -203,6 +212,11 @@ export default function WaitingLobby({ room }: Props) {
                   {ROLE_LABELS[role] || role} ×{count}
                 </span>
               ))}
+          </div>
+          <div className="mt-3 text-xs text-gray-500">
+            {room.settings.winCondition === 'edge'
+              ? '狼人胜利条件：杀光所有神职 或 杀光所有平民'
+              : '狼人胜利条件：杀光所有好人（神职+平民）'}
           </div>
         </div>
 
