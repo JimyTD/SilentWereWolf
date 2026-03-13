@@ -338,11 +338,29 @@ export async function decideMarking(
   let parsed = result.success ? extractJSON(result.content) : null;
   let retried = false;
 
-  if (!parsed || !parsed.identity || !Array.isArray(parsed.evaluations)) {
+  // 校验是否需要重试：结构不完整、评价目标无效（如字面量"userId"）、或狼人声称了"狼人"
+  const needsRetry = (p: Record<string, unknown> | null): boolean => {
+    if (!p || !p.identity || !Array.isArray(p.evaluations)) return true;
+    // 狼人声称身份为"狼人"是致命错误
+    if (aiPlayer.faction === 'evil' && p.identity === '狼人') return true;
+    // 检查评价目标是否为有效 userId（而非字面量 "userId" 等占位符）
+    const validTargetIds = targets.map(t => t.userId);
+    const evals = p.evaluations as Array<Record<string, unknown>>;
+    const validEvalCount = evals.filter(e => validTargetIds.includes(e.target as string)).length;
+    if (validEvalCount === 0 && evals.length > 0) return true;
+    return false;
+  };
+
+  if (needsRetry(parsed)) {
     retried = true;
+    let retryHint = '\n\n注意：必须返回合法 JSON，包含 analysis、identity、reason、evaluations 字段。evaluations 是数组。不要输出 JSON 以外的内容。';
+    retryHint += '\n⚠️ evaluations 中的 target 必须是提供的实际 userId 字符串（如 "7ba09934-380c-..."），不要写 "userId" 这样的占位符。';
+    if (aiPlayer.faction === 'evil') {
+      retryHint += '\n⚠️ 你是狼人阵营，identity 字段绝对不能填 "狼人"，必须伪装成好人阵营的身份。';
+    }
     result = await callLLM({
       systemPrompt,
-      userPrompt: userPrompt + '\n\n注意：必须返回合法 JSON，包含 analysis、identity、reason、evaluations 字段。evaluations 是数组。不要输出 JSON 以外的内容。',
+      userPrompt: userPrompt + retryHint,
       maxTokens: 800,
     });
     parsed = result.success ? extractJSON(result.content) : null;
@@ -363,11 +381,54 @@ export async function decideMarking(
   });
 
   if (parsed && parsed.identity && Array.isArray(parsed.evaluations)) {
-    return buildMarkingResult(parsed, targets, evaluationMarkCount, availableIdentities);
+    const markResult = buildMarkingResult(parsed, targets, evaluationMarkCount, availableIdentities);
+    // 最终防护：狼人阵营声称"狼人"身份时强制改为"好人"
+    if (aiPlayer.faction === 'evil' && markResult.identityMark.identity === '狼人') {
+      markResult.identityMark.identity = '好人';
+    }
+    // 最终防护：预言家的评价必须与查验结论一致
+    if (aiPlayer.role === ROLES.SEER) {
+      enforceSeerConsistency(markResult, state, aiPlayer);
+    }
+    return markResult;
   }
 
   // Fallback
   return fallbackMarking(aiPlayer, targets, evaluationMarkCount, availableIdentities, state);
+}
+
+/**
+ * 预言家查验结论强制修正：确保标记评价与查验结果一致
+ * 例如查验6号为好人，评价中绝不能标记6号为狼人
+ */
+function enforceSeerConsistency(
+  markResult: PlayerMarks,
+  state: GameState,
+  aiPlayer: GamePlayer,
+): void {
+  // 收集所有查验过的目标及其阵营
+  const seerResults = new Map<string, 'good' | 'evil'>();
+  for (const round of state.history.rounds) {
+    if (round.seer?.target) {
+      const target = state.players.find(p => p.userId === round.seer!.target);
+      if (target) {
+        seerResults.set(target.userId, target.faction as 'good' | 'evil');
+      }
+    }
+  }
+  if (seerResults.size === 0) return;
+
+  // 修正评价中与查验结论矛盾的项
+  for (const evaluation of markResult.evaluationMarks) {
+    const verified = seerResults.get(evaluation.target);
+    if (!verified) continue;
+
+    const expectedIdentity = verified === 'good' ? '好人' : '狼人';
+    if (evaluation.identity !== expectedIdentity) {
+      evaluation.identity = expectedIdentity;
+      evaluation.reason = SPECIAL_REASONS.INVESTIGATION as MarkReason;
+    }
+  }
 }
 
 // 中文理由→英文key映射，容错AI返回中文的情况

@@ -17,6 +17,10 @@ export default function VotingPanel({ room }: Props) {
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   const socket = getSocket();
 
+  // 已出局的玩家只能旁观投票结果，不能投票
+  const myPlayer = players.find(p => p.userId === myUserId);
+  const isAlive = myPlayer?.alive ?? false;
+
   // 显示投票结果
   if (votingResult) {
     return (
@@ -48,6 +52,16 @@ export default function VotingPanel({ room }: Props) {
     return (
       <div className="bg-gray-800 rounded-xl p-5 text-center">
         <div className="text-gray-500">等待投票阶段...</div>
+      </div>
+    );
+  }
+
+  // 已出局的玩家只显示旁观提示
+  if (!isAlive) {
+    return (
+      <div className="bg-gray-800 rounded-xl p-5 text-center">
+        <div className="text-gray-500 text-lg">你已出局</div>
+        <div className="text-gray-600 text-sm mt-1">等待其他玩家完成投票...</div>
       </div>
     );
   }
