@@ -12,6 +12,20 @@ export const ROLES = {
   VILLAGER: 'villager',
 } as const;
 
+// 角色→中文名映射（前后端共用）
+export const ROLE_LABELS: Record<string, string> = {
+  [ROLES.WEREWOLF]: '狼人',
+  [ROLES.SEER]: '预言家',
+  [ROLES.WITCH]: '女巫',
+  [ROLES.HUNTER]: '猎人',
+  [ROLES.GUARD]: '守卫',
+  [ROLES.GRAVEDIGGER]: '守墓人',
+  [ROLES.FOOL]: '白痴',
+  [ROLES.KNIGHT]: '骑士',
+  [ROLES.WOLF_KING]: '白狼王',
+  [ROLES.VILLAGER]: '平民',
+};
+
 export const FACTIONS = {
   GOOD: 'good',
   EVIL: 'evil',

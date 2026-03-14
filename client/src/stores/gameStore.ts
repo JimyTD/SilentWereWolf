@@ -153,6 +153,16 @@ export const useGameStore = create<GameStoreState>((set) => ({
       round: data.round,
       marks: data.marks,
       announcements: data.announcements,
+      investigations: data.investigations || [],
+      // 实时操作状态将由后续的事件重新推送（server:markingTurn / server:votingStart / server:nightAction 等）
+      // 这里先重置为初始状态，等待事件到来
+      nightAction: null,
+      wolfVotes: {},
+      markingTurn: null,
+      votingData: null,
+      votingResult: null,
+      hasVoted: false,
+      triggerState: initialTriggerState,
     }),
 
   setPhase: (phase, round) =>

@@ -3,12 +3,7 @@ import type { Room } from '@shared/types/room';
 import { getSocket } from '../hooks/useSocket';
 import { getUserId } from '../utils/userId';
 import { useNavigate } from 'react-router-dom';
-
-const ROLE_LABELS: Record<string, string> = {
-  werewolf: '狼人', seer: '预言家', witch: '女巫', hunter: '猎人',
-  guard: '守卫', villager: '平民', gravedigger: '守墓人',
-  fool: '白痴', knight: '骑士', wolfKing: '白狼王',
-};
+import { ROLE_LABELS } from '@shared/constants';
 
 interface Props {
   room: Room;

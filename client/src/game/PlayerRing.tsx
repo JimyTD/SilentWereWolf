@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { Room } from '@shared/types/room';
 import { useGameStore } from '../stores/gameStore';
 import { getUserId } from '../utils/userId';
@@ -11,22 +12,40 @@ export default function PlayerRing({ room }: Props) {
   const myTeammates = useGameStore(s => s.myTeammates);
   const markingTurn = useGameStore(s => s.markingTurn);
   const myUserId = getUserId();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  // 监听容器宽度变化，实现响应式
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   if (players.length === 0) return null;
 
-  // 按座位号排序
   const sorted = [...players].sort((a, b) => a.seatNumber - b.seatNumber);
   const count = sorted.length;
   const teammateIds = new Set(myTeammates.map(t => t.userId));
   const currentSpeaker = markingTurn?.currentPlayer || null;
 
-  // 圆桌半径和尺寸计算（基于玩家数量适配）
-  const radius = count <= 6 ? 100 : count <= 9 ? 115 : 130;
-  const containerSize = (radius + 45) * 2;
+  // 响应式半径：基于容器实际宽度计算，留出边距给玩家卡片
+  const cardMargin = 40; // 卡片大约半宽
+  const maxRadius = count <= 6 ? 100 : count <= 9 ? 115 : 130;
+  const dynamicRadius = containerWidth > 0
+    ? Math.min(maxRadius, (containerWidth / 2) - cardMargin)
+    : maxRadius;
+  const radius = Math.max(60, dynamicRadius); // 最小半径 60px
+  const containerSize = (radius + cardMargin) * 2;
 
   return (
-    <div className="bg-gray-800 rounded-xl p-3">
-      <div className="relative mx-auto" style={{ width: containerSize, height: containerSize }}>
+    <div ref={containerRef} className="bg-gray-800 rounded-xl p-2 sm:p-3">
+      <div className="relative mx-auto" style={{ width: '100%', maxWidth: containerSize, height: containerSize }}>
         {/* 中央桌面 */}
         <div
           className="absolute rounded-full bg-gray-700/50 border border-gray-600/50"
@@ -41,15 +60,18 @@ export default function PlayerRing({ room }: Props) {
 
         {/* 玩家座位 */}
         {sorted.map((p, i) => {
-          // 从顶部开始，顺时针排列。自己放底部（如果可以的话）
           const myIdx = sorted.findIndex(sp => sp.userId === myUserId);
-          // 以自己为底部中央，重新计算角度偏移
           const offsetIndex = (i - myIdx + count) % count;
-          // 从底部(π/2)开始顺时针
           const angle = (Math.PI / 2) + (offsetIndex / count) * 2 * Math.PI;
 
-          const x = containerSize / 2 + radius * Math.cos(angle);
-          const y = containerSize / 2 + radius * Math.sin(angle);
+          const cx = containerSize / 2;
+          const cy = containerSize / 2;
+          const x = cx + radius * Math.cos(angle);
+          const y = cy + radius * Math.sin(angle);
+
+          // 转为百分比定位，确保不溢出
+          const xPct = (x / containerSize) * 100;
+          const yPct = (y / containerSize) * 100;
 
           const roomPlayer = room.players.find(rp => rp.userId === p.userId);
           const isMe = p.userId === myUserId;
@@ -61,18 +83,17 @@ export default function PlayerRing({ room }: Props) {
               key={p.userId}
               className="absolute flex flex-col items-center"
               style={{
-                left: x,
-                top: y,
+                left: `${xPct}%`,
+                top: `${yPct}%`,
                 transform: 'translate(-50%, -50%)',
               }}
             >
-              {/* 发言中指示器 */}
               {isSpeaking && (
-                <div className="absolute -inset-1.5 rounded-xl border-2 border-green-400 animate-pulse" />
+                <div className="absolute -inset-1 sm:-inset-1.5 rounded-xl border-2 border-green-400 animate-pulse" />
               )}
 
               <div
-                className={`relative flex flex-col items-center px-2.5 py-1.5 rounded-lg min-w-[58px] transition ${
+                className={`relative flex flex-col items-center px-1.5 py-1 sm:px-2.5 sm:py-1.5 rounded-lg min-w-[48px] sm:min-w-[58px] transition ${
                   !p.alive
                     ? 'opacity-40 bg-gray-900/60'
                     : isSpeaking
@@ -84,7 +105,7 @@ export default function PlayerRing({ room }: Props) {
                     : 'bg-gray-700/60'
                 }`}
               >
-                <span className={`text-[11px] font-bold ${
+                <span className={`text-[10px] sm:text-[11px] font-bold ${
                   isSpeaking ? 'text-green-400' :
                   isMe ? 'text-indigo-400' :
                   isTeammate ? 'text-red-400' :
@@ -92,19 +113,19 @@ export default function PlayerRing({ room }: Props) {
                 }`}>
                   {p.seatNumber}号
                 </span>
-                <span className={`text-xs font-medium truncate max-w-[52px] ${
+                <span className={`text-[11px] sm:text-xs font-medium truncate max-w-[42px] sm:max-w-[52px] ${
                   p.alive ? 'text-white' : 'text-gray-500 line-through'
                 }`}>
                   {roomPlayer?.nickname || '???'}
                 </span>
                 {!p.alive && (
-                  <span className="text-[9px] text-gray-500">出局</span>
+                  <span className="text-[8px] sm:text-[9px] text-gray-500">出局</span>
                 )}
                 {isTeammate && p.alive && (
-                  <span className="text-[9px] text-red-400">同伴</span>
+                  <span className="text-[8px] sm:text-[9px] text-red-400">同伴</span>
                 )}
                 {isMe && p.alive && (
-                  <span className="text-[9px] text-indigo-400">我</span>
+                  <span className="text-[8px] sm:text-[9px] text-indigo-400">我</span>
                 )}
               </div>
             </div>

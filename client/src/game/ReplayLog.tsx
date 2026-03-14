@@ -1,16 +1,11 @@
 import type { GameOverData } from '@shared/types/socket';
 import type { NightActions, DeathRecord, PlayerMarks, VoteRecord, PlayerItem } from '@shared/types/game';
+import { ROLE_LABELS } from '@shared/constants';
 
 interface Props {
   data: GameOverData;
   onClose: () => void;
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  werewolf: '狼人', seer: '预言家', witch: '女巫', hunter: '猎人',
-  guard: '守卫', villager: '平民', gravedigger: '守墓人',
-  fool: '白痴', knight: '骑士', wolfKing: '白狼王',
-};
 
 const DEATH_CAUSE_LABELS: Record<string, string> = {
   attacked: '被狼人袭击',
@@ -70,20 +65,20 @@ export default function ReplayLog({ data, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 bg-gray-900 overflow-y-auto">
       {/* 顶栏 */}
-      <div className="sticky top-0 z-10 bg-gray-900/95 backdrop-blur border-b border-gray-700 px-4 py-3 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-white">复盘日志</h1>
+      <div className="sticky top-0 z-10 bg-gray-900/95 backdrop-blur border-b border-gray-700 px-3 sm:px-4 py-2 sm:py-3 flex items-center justify-between">
+        <h1 className="text-base sm:text-lg font-bold text-white">复盘日志</h1>
         <button
           onClick={onClose}
-          className="px-4 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition text-sm font-medium"
+          className="px-3 sm:px-4 py-1 sm:py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition text-xs sm:text-sm font-medium"
         >
           返回
         </button>
       </div>
 
-      <div className="max-w-2xl mx-auto p-4 space-y-6">
+      <div className="max-w-2xl mx-auto p-3 sm:p-4 space-y-4 sm:space-y-6">
         {/* 身份总览 */}
         <Section title="身份总览">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2">
             {data.players
               .sort((a, b) => a.seatNumber - b.seatNumber)
               .map(p => (

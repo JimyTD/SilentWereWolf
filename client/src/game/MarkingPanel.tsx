@@ -32,8 +32,8 @@ export default function MarkingPanel({ room }: Props) {
 
   if (!markingTurn) {
     return (
-      <div className="bg-gray-800 rounded-xl p-5 text-center">
-        <div className="text-gray-500">等待标记阶段开始...</div>
+      <div className="bg-gray-800 rounded-xl p-4 sm:p-5 text-center">
+        <div className="text-gray-500 text-sm">等待标记阶段开始...</div>
       </div>
     );
   }
@@ -42,9 +42,9 @@ export default function MarkingPanel({ room }: Props) {
     const currentPlayer = players.find(p => p.userId === markingTurn.currentPlayer);
     const rp = room.players.find(p => p.userId === markingTurn.currentPlayer);
     return (
-      <div className="bg-gray-800 rounded-xl p-5 text-center">
-        <div className="text-indigo-300 text-lg mb-2">标记发言中</div>
-        <div className="text-gray-400">
+      <div className="bg-gray-800 rounded-xl p-4 sm:p-5 text-center">
+        <div className="text-indigo-300 text-base sm:text-lg mb-1 sm:mb-2">标记发言中</div>
+        <div className="text-gray-400 text-sm">
           {currentPlayer?.seatNumber}号 {rp?.nickname || '???'} 正在标记...
         </div>
       </div>
@@ -53,9 +53,9 @@ export default function MarkingPanel({ room }: Props) {
 
   if (submitted) {
     return (
-      <div className="bg-gray-800 rounded-xl p-5 text-center">
-        <div className="text-green-400 text-lg">标记已提交</div>
-        <div className="text-gray-500 text-sm mt-1">等待其他玩家...</div>
+      <div className="bg-gray-800 rounded-xl p-4 sm:p-5 text-center">
+        <div className="text-green-400 text-base sm:text-lg">标记已提交</div>
+        <div className="text-gray-500 text-xs sm:text-sm mt-1">等待其他玩家...</div>
       </div>
     );
   }
@@ -117,20 +117,20 @@ export default function MarkingPanel({ room }: Props) {
   const isComplete = selfIdentity && !hasIncompleteEval;
 
   return (
-    <div className="bg-gray-800 rounded-xl p-5 space-y-4">
+    <div className="bg-gray-800 rounded-xl p-3 sm:p-5 space-y-3 sm:space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-green-400 font-bold">你的标记</h3>
+        <h3 className="text-green-400 font-bold text-sm sm:text-base">你的标记</h3>
       </div>
 
       {/* 身份声明 */}
       <div>
-        <label className="text-sm text-gray-400 mb-2 block">身份声明（必选）</label>
-        <div className="flex flex-wrap gap-2">
+        <label className="text-xs sm:text-sm text-gray-400 mb-1.5 sm:mb-2 block">身份声明（必选）</label>
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
           {markingTurn.availableIdentities.map(id => (
             <button
               key={id}
               onClick={() => setSelfIdentity(id)}
-              className={`px-3 py-1.5 rounded-lg text-sm transition ${
+              className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm transition ${
                 selfIdentity === id
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -144,17 +144,17 @@ export default function MarkingPanel({ room }: Props) {
 
       {/* 评价标记 */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-sm text-gray-400">评价标记（最多 {evalCount} 个，可不填）</label>
+        <div className="flex items-center justify-between mb-1.5 sm:mb-2">
+          <label className="text-xs sm:text-sm text-gray-400">评价标记（最多 {evalCount} 个，可不填）</label>
           {evaluations.length < evalCount && (
             <button onClick={addEvaluation} className="text-xs text-indigo-400 hover:text-indigo-300">
-              + 添加评价
+              + 添加
             </button>
           )}
         </div>
-        <div className="space-y-3">
+        <div className="space-y-2 sm:space-y-3">
           {evaluations.map((ev, i) => (
-            <div key={i} className="bg-gray-900/50 rounded-lg p-3 space-y-2">
+            <div key={i} className="bg-gray-900/50 rounded-lg p-2.5 sm:p-3 space-y-1.5 sm:space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">评价 {i + 1}</span>
                 <button onClick={() => removeEvaluation(i)} className="text-xs text-red-400 hover:text-red-300">删除</button>
@@ -163,7 +163,7 @@ export default function MarkingPanel({ room }: Props) {
               <select
                 value={ev.target}
                 onChange={e => updateEvaluation(i, 'target', e.target.value)}
-                className="w-full bg-gray-700 text-gray-300 rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-gray-700 text-gray-300 rounded-lg px-3 py-2 text-sm appearance-none"
               >
                 <option value="">选择目标</option>
                 {availableTargets.map(t => (
@@ -190,7 +190,7 @@ export default function MarkingPanel({ room }: Props) {
               <select
                 value={ev.reason}
                 onChange={e => updateEvaluation(i, 'reason', e.target.value)}
-                className="w-full bg-gray-700 text-gray-300 rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-gray-700 text-gray-300 rounded-lg px-3 py-2 text-sm appearance-none"
               >
                 {getAvailableReasons().map(r => (
                   <option key={r} value={r}>{REASON_LABELS[r] || r}</option>
@@ -201,7 +201,7 @@ export default function MarkingPanel({ room }: Props) {
           {evaluations.length < evalCount && (
             <button
               onClick={addEvaluation}
-              className="w-full border border-dashed border-gray-600 rounded-lg py-3 text-gray-500 text-sm hover:border-gray-500 hover:text-gray-400 transition"
+              className="w-full border border-dashed border-gray-600 rounded-lg py-2.5 sm:py-3 text-gray-500 text-xs sm:text-sm hover:border-gray-500 hover:text-gray-400 transition"
             >
               + 添加评价标记 ({evaluations.length}/{evalCount})
             </button>
@@ -213,7 +213,7 @@ export default function MarkingPanel({ room }: Props) {
       <button
         onClick={handleSubmit}
         disabled={!isComplete}
-        className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold py-3 rounded-lg transition"
+        className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold py-2.5 sm:py-3 rounded-lg transition"
       >
         提交标记
       </button>

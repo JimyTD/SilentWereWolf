@@ -402,7 +402,7 @@ export async function decideMarking(
  * 例如查验6号为好人，评价中绝不能标记6号为狼人
  */
 function enforceSeerConsistency(
-  markResult: PlayerMarks,
+  markResult: MarkingResult,
   state: GameState,
   aiPlayer: GamePlayer,
 ): void {

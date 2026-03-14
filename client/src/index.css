@@ -2,20 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 全局字体 */
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* 防止 iOS 上 input 聚焦时页面缩放 */
+input, select, textarea {
+  font-size: 16px;
 }
 
 /* 自定义滚动条 */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 ::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.05);
 }
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
+  border-radius: 2px;
+}
+
+/* 移动端 dvh 支持（fallback） */
+@supports (height: 100dvh) {
+  .min-h-\[100dvh\] {
+    min-height: 100dvh;
+  }
 }
 
 @keyframes slide-in {
@@ -31,4 +46,11 @@ body {
 
 .animate-slide-in {
   animation: slide-in 0.3s ease-out;
+}
+
+/* 安全区域内边距（适配 iPhone 刘海屏） */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }

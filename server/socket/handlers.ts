@@ -38,6 +38,9 @@ export function registerSocketHandlers(
           // 从死亡历史重建公告
           const announcements = rebuildAnnouncements(state);
 
+          // 重建查验历史（预言家/守墓人）
+          const investigations = rebuildInvestigations(state, player);
+
           socket.emit('server:reconnected', {
             room,
             gameState: {
@@ -56,8 +59,13 @@ export function registerSocketHandlers(
               marks: state.history.marks,
               votes: state.history.votes,
               announcements,
+              investigations,
             },
           });
+
+          // 重连后重新推送当前阶段的实时操作状态（标记轮次、投票、夜晚操作等）
+          gm.resendCurrentPhaseState(userId);
+
           // 通知房间其他人该玩家已重连
           socket.to(existingUser.roomId).emit('server:roomUpdate', room);
         }
@@ -422,6 +430,41 @@ function rebuildAnnouncements(state: import('../../shared/types/game').GameState
   });
 
   return announcements;
+}
+
+/**
+ * 重建查验历史（预言家/守墓人的历史查验结果）
+ * 从夜晚行动历史中提取该玩家的查验目标，并查找目标的阵营
+ */
+function rebuildInvestigations(
+  state: import('../../shared/types/game').GameState,
+  player: import('../../shared/types/game').GamePlayer,
+): { target: string; faction: import('../../shared/types/game').Faction }[] {
+  const investigations: { target: string; faction: import('../../shared/types/game').Faction }[] = [];
+
+  if (player.role === ROLES.SEER) {
+    // 预言家：从每轮夜晚行动中提取 seer 查验的目标
+    for (const round of state.history.rounds) {
+      if (round.seer?.target) {
+        const target = state.players.find(p => p.userId === round.seer!.target);
+        if (target) {
+          investigations.push({ target: target.userId, faction: target.faction });
+        }
+      }
+    }
+  } else if (player.role === ROLES.GRAVEDIGGER) {
+    // 守墓人：从每轮夜晚行动中提取 gravedigger 查验的目标
+    for (const round of state.history.rounds) {
+      if (round.gravedigger?.target) {
+        const target = state.players.find(p => p.userId === round.gravedigger!.target);
+        if (target) {
+          investigations.push({ target: target.userId, faction: target.faction });
+        }
+      }
+    }
+  }
+
+  return investigations;
 }
 
 function getTeammates(

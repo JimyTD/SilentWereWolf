@@ -169,7 +169,7 @@ export interface VotingResultData {
   tie: boolean;
 }
 
-export type GameOverReason = 'wolves_eliminated' | 'specials_eliminated' | 'villagers_eliminated' | 'exile';
+export type GameOverReason = 'wolves_eliminated' | 'specials_eliminated' | 'villagers_eliminated' | 'good_eliminated';
 
 export interface GameOverData {
   winner: Faction;
@@ -199,4 +199,6 @@ export interface ClientGameState {
   marks: PlayerMarks[];
   votes: VoteRecord[][];
   announcements: DayAnnouncementData[];
+  // 重连恢复用：查验历史（预言家/守墓人）
+  investigations?: { target: string; faction: Faction }[];
 }

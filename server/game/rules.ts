@@ -1,9 +1,10 @@
 import type { GameState, GamePlayer, DeathRecord, NightActions, WinCondition } from '../../shared/types/game';
+import type { GameOverReason } from '../../shared/types/socket';
 import { ROLES, FACTIONS, SPECIAL_ROLES, DEATH_CAUSE, ROLE_FACTION } from '../../shared/constants';
 
 export interface WinResult {
   winner: 'good' | 'evil';
-  reason: 'wolves_eliminated' | 'specials_eliminated' | 'villagers_eliminated' | 'good_eliminated';
+  reason: GameOverReason;
 }
 
 /**

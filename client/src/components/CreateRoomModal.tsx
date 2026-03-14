@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { PRESETS, ITEMS, ROLES, ROLE_FACTION, FACTIONS, AVAILABLE_ROLES_FOR_CUSTOM, MIN_PLAYERS, MAX_PLAYERS } from '@shared/constants';
+import { PRESETS, ITEMS, ROLES, ROLE_FACTION, FACTIONS, AVAILABLE_ROLES_FOR_CUSTOM, MIN_PLAYERS, MAX_PLAYERS, ROLE_LABELS, DEFAULT_TIMERS } from '@shared/constants';
 import type { GameSettings, ItemType, WinCondition } from '@shared/types/game';
 
 const PRESET_LABELS: Record<string, string> = {
@@ -15,19 +15,6 @@ const PRESET_LABELS: Record<string, string> = {
   '10guard': '10 人守卫',
   '12standard': '12 人标准',
   '12full': '12 人全角色',
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  werewolf: '狼人',
-  seer: '预言家',
-  witch: '女巫',
-  hunter: '猎人',
-  guard: '守卫',
-  villager: '平民',
-  gravedigger: '守墓人',
-  fool: '白痴',
-  knight: '骑士',
-  wolfKing: '白狼王',
 };
 
 interface Props {
@@ -77,6 +64,11 @@ export default function CreateRoomModal({ onClose, onCreate, loading }: Props) {
       items: {
         enabled: true,
         pool: [ITEMS.MOONSTONE, ITEMS.BALANCE] as ItemType[],
+      },
+      timers: {
+        marking: DEFAULT_TIMERS.MARKING,
+        voting: DEFAULT_TIMERS.VOTING,
+        nightAction: DEFAULT_TIMERS.NIGHT_ACTION,
       },
       lastWords: false,
       deepMode: false,

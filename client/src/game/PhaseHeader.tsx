@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useGameStore } from '../stores/gameStore';
-import { PHASES } from '@shared/constants';
+import { PHASES, ROLE_LABELS } from '@shared/constants';
 
 const PHASE_LABELS: Record<string, { text: string; color: string; bg: string }> = {
   [PHASES.NIGHT]: { text: '夜晚', color: 'text-indigo-300', bg: 'bg-indigo-900/50' },
@@ -11,12 +11,6 @@ const PHASE_LABELS: Record<string, { text: string; color: string; bg: string }> 
   [PHASES.DAY_VOTING]: { text: '放逐投票', color: 'text-red-300', bg: 'bg-red-900/30' },
   [PHASES.DAY_TRIGGER]: { text: '特殊事件', color: 'text-purple-300', bg: 'bg-purple-900/30' },
   [PHASES.GAME_OVER]: { text: '游戏结束', color: 'text-white', bg: 'bg-gray-800' },
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  werewolf: '狼人', seer: '预言家', witch: '女巫', hunter: '猎人',
-  guard: '守卫', villager: '平民', wolfKing: '白狼王',
-  gravedigger: '守墓人', fool: '白痴', knight: '骑士',
 };
 
 const FACTION_LABELS: Record<string, { text: string; color: string }> = {
@@ -43,16 +37,16 @@ export default function PhaseHeader() {
 
   return (
     <>
-      <div className={`p-4 ${phaseInfo?.bg || 'bg-gray-800'}`}>
-        <div className="flex items-center justify-between">
-          <div>
-            <span className={`text-lg font-bold ${phaseInfo?.color || 'text-white'}`}>
+      <div className={`px-3 py-2 sm:p-4 ${phaseInfo?.bg || 'bg-gray-800'}`}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <span className={`text-sm sm:text-lg font-bold ${phaseInfo?.color || 'text-white'}`}>
               第 {round} 轮 · {phaseInfo?.text || '准备中'}
             </span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
             {myRole && (
-              <span className={`text-sm font-medium px-3 py-1 rounded-full ${
+              <span className={`text-xs sm:text-sm font-medium px-2 sm:px-3 py-0.5 sm:py-1 rounded-full ${
                 myFaction === 'evil' ? 'bg-red-500/20 text-red-300' : 'bg-blue-500/20 text-blue-300'
               }`}>
                 {ROLE_LABELS[myRole] || myRole}
@@ -61,20 +55,20 @@ export default function PhaseHeader() {
             {myItems.length > 0 && myItems.map((item, i) => (
               <span
                 key={i}
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300"
+                className="hidden sm:inline text-xs font-medium px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300"
                 title="存活时只知类型，出局后公开内容"
               >
                 {ITEM_LABELS[item] || item}
               </span>
             ))}
             {factionInfo && (
-              <span className={`text-xs ${factionInfo.color}`}>
+              <span className={`hidden sm:inline text-xs ${factionInfo.color}`}>
                 {factionInfo.text}
               </span>
             )}
             <button
               onClick={() => setShowHelp(true)}
-              className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-600/50 hover:bg-gray-500/50 text-gray-300 hover:text-white transition text-sm font-bold"
+              className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full bg-gray-600/50 hover:bg-gray-500/50 text-gray-300 hover:text-white transition text-xs sm:text-sm font-bold"
               title="游戏说明"
             >
               ?

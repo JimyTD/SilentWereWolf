@@ -164,7 +164,7 @@ export default function HomePage() {
 
         {/* 版本号 */}
         <div className="text-center mt-10 text-gray-600 text-xs">
-          v0.1.0 · MVP
+          v{__APP_VERSION__}
         </div>
       </div>
 

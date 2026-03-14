@@ -43,14 +43,14 @@ export default function InfoPanel() {
   }
 
   return (
-    <div className="bg-gray-800 rounded-xl overflow-hidden h-full flex flex-col">
+    <div className="bg-gray-800 rounded-xl overflow-hidden flex flex-col" style={{ maxHeight: '40vh', minHeight: '120px' }}>
       {/* Tab 栏 */}
       <div className="flex border-b border-gray-700 flex-shrink-0">
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 px-4 py-2 text-sm font-medium transition ${
+            className={`flex-1 px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium transition ${
               activeTab === tab.key
                 ? 'text-indigo-400 border-b-2 border-indigo-400'
                 : 'text-gray-400 hover:text-gray-300'
@@ -62,7 +62,7 @@ export default function InfoPanel() {
       </div>
 
       {/* 内容 */}
-      <div className="p-4 flex-1 overflow-y-auto">
+      <div className="p-3 sm:p-4 flex-1 overflow-y-auto">
         {activeTab === 'announcements' && (
           <div className="space-y-3">
             {announcements.length === 0 && <p className="text-gray-500 text-sm">暂无公告</p>}

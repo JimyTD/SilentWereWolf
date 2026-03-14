@@ -2,7 +2,7 @@ import type { GameState, GamePlayer } from '../../../shared/types/game';
 import { BaseRole } from './BaseRole';
 
 export class Werewolf extends BaseRole {
-  readonly roleName = 'werewolf';
+  override readonly roleName: string = 'werewolf';
   readonly faction = 'evil' as const;
   readonly hasNightAction = true;
 

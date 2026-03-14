@@ -3,12 +3,7 @@ import { useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
 import { getUserId } from '../utils/userId';
 import { useRoomStore } from '../stores/roomStore';
-
-const ROLE_LABELS: Record<string, string> = {
-  werewolf: '狼人', seer: '预言家', witch: '女巫', guard: '守卫',
-  villager: '平民', wolfKing: '白狼王', gravedigger: '守墓人',
-  hunter: '猎人', fool: '白痴', knight: '骑士',
-};
+import { ROLE_LABELS } from '@shared/constants';
 
 export default function NightActionPanel() {
   const nightAction = useGameStore(s => s.nightAction);
@@ -26,19 +21,18 @@ export default function NightActionPanel() {
 
   if (!nightAction) {
     return (
-      <div className="bg-night rounded-xl p-6 text-center">
-        <div className="text-indigo-300 text-lg mb-2">夜晚降临...</div>
-        <div className="text-gray-500 text-sm">等待其他玩家操作</div>
+      <div className="bg-night rounded-xl p-4 sm:p-6 text-center">
+        <div className="text-indigo-300 text-base sm:text-lg mb-1 sm:mb-2">夜晚降临...</div>
+        <div className="text-gray-500 text-xs sm:text-sm">等待其他玩家操作</div>
       </div>
     );
   }
 
   if (submitted) {
     return (
-      <div className="bg-night rounded-xl p-6 text-center">
-        <div className="text-green-400 text-lg">操作已提交</div>
-        <div className="text-gray-500 text-sm mt-1">等待其他玩家...</div>
-        {/* 狼人提交后仍可看到队友投票进度 */}
+      <div className="bg-night rounded-xl p-4 sm:p-6 text-center">
+        <div className="text-green-400 text-base sm:text-lg">操作已提交</div>
+        <div className="text-gray-500 text-xs sm:text-sm mt-1">等待其他玩家...</div>
         {isWolf(myRole) && <WolfVoteStatus wolfVotes={wolfVotes} myTeammates={myTeammates} players={players} room={room} myUserId={myUserId} />}
       </div>
     );
@@ -88,9 +82,9 @@ export default function NightActionPanel() {
   };
 
   return (
-    <div className="bg-night rounded-xl p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-indigo-300 font-bold">
+    <div className="bg-night rounded-xl p-3 sm:p-5">
+      <div className="flex items-center justify-between mb-3 sm:mb-4">
+        <h3 className="text-indigo-300 font-bold text-sm sm:text-base">
           夜晚行动 · {ROLE_LABELS[nightAction.role] || nightAction.role}
         </h3>
       </div>
@@ -100,19 +94,19 @@ export default function NightActionPanel() {
 
       {/* 女巫特殊面板 */}
       {myRole === 'witch' && nightAction.witchInfo && (
-        <div className="mb-4">
+        <div className="mb-3 sm:mb-4">
           {nightAction.witchInfo.victim && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-3">
-              <span className="text-red-300 text-sm">
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-2.5 sm:p-3 mb-2 sm:mb-3">
+              <span className="text-red-300 text-xs sm:text-sm">
                 今晚 {getPlayerName(nightAction.witchInfo.victim)} 被袭击
               </span>
             </div>
           )}
-          <div className="flex gap-2 mb-3">
+          <div className="flex flex-wrap gap-2 mb-2 sm:mb-3">
             {nightAction.witchInfo.hasAntidote && nightAction.witchInfo.victim && (
               <button
                 onClick={() => { setSelectedPotion('antidote'); setSelectedTarget(null); }}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition ${
                   selectedPotion === 'antidote'
                     ? 'bg-green-600 text-white'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -124,7 +118,7 @@ export default function NightActionPanel() {
             {nightAction.witchInfo.hasPoison && (
               <button
                 onClick={() => setSelectedPotion('poison')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition ${
                   selectedPotion === 'poison'
                     ? 'bg-purple-600 text-white'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -135,7 +129,7 @@ export default function NightActionPanel() {
             )}
             <button
               onClick={() => { setSelectedPotion('none'); setSelectedTarget(null); }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition ${
                 selectedPotion === 'none'
                   ? 'bg-gray-600 text-white'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -147,11 +141,11 @@ export default function NightActionPanel() {
         </div>
       )}
 
-      {/* 目标选择（非女巫，或女巫毒药模式） */}
+      {/* 目标选择 */}
       {(myRole !== 'witch' || selectedPotion === 'poison') && nightAction.availableTargets.length > 0 && (
-        <div className="mb-4">
-          <div className="text-sm text-gray-400 mb-2">选择目标：</div>
-          <div className="grid grid-cols-3 gap-2">
+        <div className="mb-3 sm:mb-4">
+          <div className="text-xs sm:text-sm text-gray-400 mb-2">选择目标：</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
             {nightAction.availableTargets.map(targetId => {
               const teammateVoters = getTeammateVotesForTarget(targetId);
               const isSelf = targetId === myUserId;
@@ -159,7 +153,7 @@ export default function NightActionPanel() {
                 <button
                   key={targetId}
                   onClick={() => setSelectedTarget(targetId)}
-                  className={`relative p-2 rounded-lg text-sm transition ${
+                  className={`relative p-2 rounded-lg text-xs sm:text-sm transition ${
                     selectedTarget === targetId
                       ? 'bg-indigo-600 text-white'
                       : isSelf
@@ -169,7 +163,6 @@ export default function NightActionPanel() {
                 >
                   {getPlayerName(targetId)}
                   {isSelf && <span className="text-[10px] ml-0.5">(自己)</span>}
-                  {/* 队友选择标记 */}
                   {teammateVoters.length > 0 && (
                     <div className="absolute -top-1.5 -right-1.5 flex gap-0.5">
                       {teammateVoters.map(vid => {
@@ -193,7 +186,7 @@ export default function NightActionPanel() {
       <button
         onClick={handleSubmit}
         disabled={myRole !== 'witch' && !selectedTarget && nightAction.availableTargets.length > 0}
-        className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold py-3 rounded-lg transition"
+        className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold py-2.5 sm:py-3 rounded-lg transition"
       >
         确认
       </button>
