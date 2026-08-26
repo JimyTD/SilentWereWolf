@@ -26,10 +26,10 @@ cd client && npx vite
 
 ## 部署
 
-项目使用 Docker Compose 部署，外部端口 8080。
+生产环境使用 Docker Compose，公网入口为 `8081`，内部应用端口为 `3001`。完整的腾讯云部署、更新、回滚和密钥管理流程请参阅 `docs/operations.md`。
 
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 ## 目录结构

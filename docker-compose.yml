@@ -11,6 +11,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
+    env_file:
+      - path: ${SILENTWEREWOLF_ENV_FILE:-/root/silentwerewolf-secrets/silentwerewolf.env}
+        required: false
     networks:
       - silentwerewolf-network
     # 不对外暴露端口，仅通过 nginx 访问
