@@ -1055,10 +1055,10 @@ export class GameManager {
     const availableReasons = new Set([...Object.values(COMMON_REASONS), ...Object.values(SPECIAL_REASONS)]);
     if (!availableReasons.has(marks.identityMark.reason)) return false;
 
-    const expectedEvaluationCount = getEvaluationMarkCount(
+    const maxEvaluationCount = getEvaluationMarkCount(
       this.state.players.filter(player => player.alive).length,
     );
-    if (marks.evaluationMarks.length !== expectedEvaluationCount) return false;
+    if (marks.evaluationMarks.length > maxEvaluationCount) return false;
 
     const evaluatedTargets = new Set<string>();
     for (const mark of marks.evaluationMarks) {

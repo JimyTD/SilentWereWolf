@@ -99,10 +99,6 @@ export default function MarkingPanel({ room }: Props) {
 
   const handleSubmit = () => {
     if (!socket || !selfIdentity) return;
-    if (evaluations.length !== evalCount) {
-      setSubmitError(`请完成 ${evalCount} 个评价标记`);
-      return;
-    }
     if (evaluations.some(e => !e.target || !e.identity)) {
       setSubmitError('请完整填写每个评价标记');
       return;
@@ -136,9 +132,8 @@ export default function MarkingPanel({ room }: Props) {
     return `${p?.seatNumber || '?'}号 ${rp?.nickname || '???'}`;
   };
 
-  const hasIncompleteEval = evaluations.length !== evalCount || evaluations.some(e => !e.target || !e.identity);
-  const hasDuplicateTarget = new Set(evaluations.map(e => e.target).filter(Boolean)).size !== evaluations.filter(e => e.target).length;
-  const isComplete = Boolean(selfIdentity) && !hasIncompleteEval && !hasDuplicateTarget;
+  const hasIncompleteEval = evaluations.some(e => !e.target || !e.identity);
+  const isComplete = Boolean(selfIdentity) && !hasIncompleteEval;
 
   return (
     <div className="bg-gray-800 rounded-xl p-3 sm:p-5 space-y-3 sm:space-y-4">
@@ -169,7 +164,7 @@ export default function MarkingPanel({ room }: Props) {
       {/* 评价标记 */}
       <div>
         <div className="flex items-center justify-between mb-1.5 sm:mb-2">
-          <label className="text-xs sm:text-sm text-gray-400">评价标记（必须填写 {evalCount} 个）</label>
+          <label className="text-xs sm:text-sm text-gray-400">评价标记（最多 {evalCount} 个，可不填）</label>
           {evaluations.length < evalCount && (
             <button onClick={addEvaluation} className="text-xs text-indigo-400 hover:text-indigo-300">
               + 添加
