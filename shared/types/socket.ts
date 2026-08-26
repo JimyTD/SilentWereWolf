@@ -25,7 +25,7 @@ export interface ClientToServerEvents {
   'room:removeAI': (data: { targetUserId: string }) => void;
   'room:testAI': (callback: (res: BaseResponse) => void) => void;
   'client:nightAction': (data: NightActionPayload) => void;
-  'client:submitMarks': (data: SubmitMarksPayload) => void;
+  'client:submitMarks': (data: SubmitMarksPayload, callback?: (res: BaseResponse) => void) => void;
   'client:vote': (data: { target: string; actionId?: string }) => void;
   'client:hunterAction': (data: { action: 'shoot' | 'skip'; target?: string; actionId?: string }) => void;
   'client:knightAction': (data: { action: 'duel' | 'skip'; target?: string; actionId?: string }) => void;

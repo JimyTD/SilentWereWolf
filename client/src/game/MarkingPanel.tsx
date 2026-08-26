@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { MarkReason } from '@shared/types/game';
 import type { Room } from '@shared/types/room';
 import { useGameStore } from '../stores/gameStore';
@@ -29,6 +29,14 @@ export default function MarkingPanel({ room }: Props) {
   const [selfIdentity, setSelfIdentity] = useState('');
   const [evaluations, setEvaluations] = useState<{ target: string; identity: string; reason: string }[]>([]);
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelfIdentity('');
+    setEvaluations([]);
+    setSubmitted(false);
+    setSubmitError(null);
+  }, [markingTurn?.actionId, markingTurn?.currentPlayer]);
 
   if (!markingTurn) {
     return (
@@ -91,19 +99,35 @@ export default function MarkingPanel({ room }: Props) {
 
   const handleSubmit = () => {
     if (!socket || !selfIdentity) return;
-    // 已填写的评价必须完整（有目标和身份）
-    const validEvals = evaluations.filter(e => e.target && e.identity);
-    if (evaluations.some(e => (e.target || e.identity) && (!e.target || !e.identity))) return;
+    if (evaluations.length !== evalCount) {
+      setSubmitError(`请完成 ${evalCount} 个评价标记`);
+      return;
+    }
+    if (evaluations.some(e => !e.target || !e.identity)) {
+      setSubmitError('请完整填写每个评价标记');
+      return;
+    }
+    if (new Set(evaluations.map(e => e.target)).size !== evaluations.length) {
+      setSubmitError('每个评价标记必须选择不同的目标');
+      return;
+    }
 
+    setSubmitError(null);
     socket.emit('client:submitMarks', {
+      actionId: markingTurn.actionId,
       identityMark: { identity: selfIdentity, reason: COMMON_REASONS.INTUITION as MarkReason },
-      evaluationMarks: validEvals.map(e => ({
+      evaluationMarks: evaluations.map(e => ({
         target: e.target,
         identity: e.identity,
         reason: e.reason as MarkReason,
       })),
+    }, (response) => {
+      if (response.success) {
+        setSubmitted(true);
+      } else {
+        setSubmitError(response.message || '标记提交失败，请检查内容后重试');
+      }
     });
-    setSubmitted(true);
   };
 
   const getPlayerName = (userId: string) => {
@@ -112,9 +136,9 @@ export default function MarkingPanel({ room }: Props) {
     return `${p?.seatNumber || '?'}号 ${rp?.nickname || '???'}`;
   };
 
-  // 只需要身份声明，已填写的评价需完整
-  const hasIncompleteEval = evaluations.some(e => (e.target || e.identity) && (!e.target || !e.identity));
-  const isComplete = selfIdentity && !hasIncompleteEval;
+  const hasIncompleteEval = evaluations.length !== evalCount || evaluations.some(e => !e.target || !e.identity);
+  const hasDuplicateTarget = new Set(evaluations.map(e => e.target).filter(Boolean)).size !== evaluations.filter(e => e.target).length;
+  const isComplete = Boolean(selfIdentity) && !hasIncompleteEval && !hasDuplicateTarget;
 
   return (
     <div className="bg-gray-800 rounded-xl p-3 sm:p-5 space-y-3 sm:space-y-4">
@@ -145,7 +169,7 @@ export default function MarkingPanel({ room }: Props) {
       {/* 评价标记 */}
       <div>
         <div className="flex items-center justify-between mb-1.5 sm:mb-2">
-          <label className="text-xs sm:text-sm text-gray-400">评价标记（最多 {evalCount} 个，可不填）</label>
+          <label className="text-xs sm:text-sm text-gray-400">评价标记（必须填写 {evalCount} 个）</label>
           {evaluations.length < evalCount && (
             <button onClick={addEvaluation} className="text-xs text-indigo-400 hover:text-indigo-300">
               + 添加
@@ -210,6 +234,9 @@ export default function MarkingPanel({ room }: Props) {
       </div>
 
       {/* 提交 */}
+      {submitError && (
+        <div className="text-red-400 text-xs sm:text-sm">{submitError}</div>
+      )}
       <button
         onClick={handleSubmit}
         disabled={!isComplete}

@@ -300,12 +300,18 @@ export function registerSocketHandlers(
     }
   });
 
-  socket.on('client:submitMarks', (data) => {
+  socket.on('client:submitMarks', (data, callback) => {
     try {
       const user = roomManager.getUser(userId);
-      if (!user?.roomId) return;
+      if (!user?.roomId) {
+        callback?.({ success: false, error: 'NOT_IN_ROOM', message: '你当前不在房间中' });
+        return;
+      }
       const gm = roomManager.getGameManager(user.roomId);
-      if (!gm) return;
+      if (!gm) {
+        callback?.({ success: false, error: 'GAME_NOT_FOUND', message: '游戏状态不存在' });
+        return;
+      }
 
       const marks: PlayerMarks = {
         player: userId,
@@ -313,9 +319,13 @@ export function registerSocketHandlers(
         identityMark: data.identityMark,
         evaluationMarks: data.evaluationMarks,
       };
-      gm.handleSubmitMarks(userId, marks, data.actionId);
+      const submitted = gm.handleSubmitMarks(userId, marks, data.actionId);
+      callback?.(submitted
+        ? { success: true }
+        : { success: false, error: 'INVALID_MARKS', message: '标记内容不符合当前规则，或当前已不是你的标记回合' });
     } catch (err) {
       console.error('[client:submitMarks] 错误:', err);
+      callback?.({ success: false, error: 'INTERNAL_ERROR', message: '提交标记失败，请稍后重试' });
     }
   });
 
