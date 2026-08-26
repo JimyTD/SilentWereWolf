@@ -26,10 +26,10 @@ export interface ClientToServerEvents {
   'room:testAI': (callback: (res: BaseResponse) => void) => void;
   'client:nightAction': (data: NightActionPayload) => void;
   'client:submitMarks': (data: SubmitMarksPayload) => void;
-  'client:vote': (data: { target: string }) => void;
-  'client:hunterAction': (data: { action: 'shoot' | 'skip'; target?: string }) => void;
-  'client:knightAction': (data: { action: 'duel' | 'skip'; target?: string }) => void;
-  'client:wolfKingAction': (data: { action: 'drag' | 'skip'; target?: string }) => void;
+  'client:vote': (data: { target: string; actionId?: string }) => void;
+  'client:hunterAction': (data: { action: 'shoot' | 'skip'; target?: string; actionId?: string }) => void;
+  'client:knightAction': (data: { action: 'duel' | 'skip'; target?: string; actionId?: string }) => void;
+  'client:wolfKingAction': (data: { action: 'drag' | 'skip'; target?: string; actionId?: string }) => void;
 }
 
 // ========== 服务端 → 客户端 事件 ==========
@@ -44,20 +44,20 @@ export interface ServerToClientEvents {
   'server:phaseChange': (data: PhaseChangeData) => void;
   'server:nightAction': (data: NightActionPrompt) => void;
   'server:witchInfo': (data: { victim: string | null }) => void;
-  'server:wolfVoteUpdate': (data: { votes: Record<string, string> }) => void;
+  'server:wolfVoteUpdate': (data: { votes: Record<string, string>; actionId?: string }) => void;
   'server:investigateResult': (data: { target: string; faction: Faction }) => void;
   'server:autopsyResult': (data: { target: string; faction: Faction }) => void;
   'server:dayAnnouncement': (data: DayAnnouncementData) => void;
-  'server:hunterTrigger': (data: { canShoot: boolean; timeout: number }) => void;
+  'server:hunterTrigger': (data: { canShoot: boolean; timeout: number; actionId?: string }) => void;
   'server:hunterResult': (data: { shooter: string; target: string | null; targetDeath: boolean }) => void;
-  'server:knightTurn': (data: { canDuel: boolean; timeout: number }) => void;
+  'server:knightTurn': (data: { canDuel: boolean; timeout: number; actionId?: string }) => void;
   'server:duelResult': (data: { loser: string }) => void;
   'server:markingTurn': (data: MarkingTurnData) => void;
   'server:marksRevealed': (data: PlayerMarks) => void;
   'server:votingStart': (data: VotingStartData) => void;
   'server:votingResult': (data: VotingResultData) => void;
   'server:foolImmunity': (data: { userId: string }) => void;
-  'server:wolfKingTrigger': (data: { timeout: number }) => void;
+  'server:wolfKingTrigger': (data: { timeout: number; actionId?: string }) => void;
   'server:wolfKingResult': (data: { dragger: string; target: string | null }) => void;
   'server:gameOver': (data: GameOverData) => void;
   'server:error': (data: { error: string; message: string }) => void;
@@ -116,6 +116,7 @@ export interface PhaseChangeData {
 
 export interface NightActionPrompt {
   role: string;
+  actionId?: string;
   timeout: number;
   availableTargets: string[];
   // 女巫额外信息
@@ -129,6 +130,7 @@ export interface NightActionPrompt {
 
 export interface NightActionPayload {
   action: string;
+  actionId?: string;
   target?: string;
   potion?: 'antidote' | 'poison' | 'none';
 }
@@ -147,6 +149,7 @@ export interface DayAnnouncementData {
 
 export interface MarkingTurnData {
   yourTurn: boolean;
+  actionId?: string;
   currentPlayer: string;
   timeout: number;
   evaluationMarkCount: number;
@@ -154,11 +157,13 @@ export interface MarkingTurnData {
 }
 
 export interface SubmitMarksPayload {
+  actionId?: string;
   identityMark: IdentityMark;
   evaluationMarks: EvaluationMark[];
 }
 
 export interface VotingStartData {
+  actionId?: string;
   timeout: number;
   candidates: string[];
 }

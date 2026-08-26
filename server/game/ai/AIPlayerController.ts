@@ -14,6 +14,16 @@ import {
 } from './AIPromptTemplates';
 import { callLLM } from './AIApiClient';
 import { logAIDecision } from './AILogger';
+import {
+  guardVote,
+  guardNightAction,
+  guardMarking,
+  guardTriggerAction,
+} from './AIDecisionGuard';
+
+import { getPersona, type AIPersona } from './AIPersona';
+
+
 
 /**
  * AI 玩家决策控制器
@@ -27,15 +37,36 @@ const DELAY_RANGES: Record<string, [number, number]> = {
   trigger: [2000, 5000],
 };
 
-function getRandomDelay(type: string, maxTimeout?: number): number {
+function getRandomDelay(type: string, maxTimeout?: number, persona?: AIPersona): number {
   const [min, max] = DELAY_RANGES[type] || [2000, 5000];
-  const delay = Math.floor(Math.random() * (max - min)) + min;
+
+  // 基础延迟：改用偏向短耗时的分布（两次随机取小值），
+  // 使多数决策偏快、少数偏慢，比均匀分布更接近真人的长尾反应时间。
+  const r = Math.min(Math.random(), Math.random());
+  let delay = min + r * (max - min);
+
+  // 人格节奏：急性子整体偏快，谨慎型整体偏慢
+  if (persona) {
+    delay *= persona.paceFactor;
+  }
+
+  // 少量异常值：真人偶尔会突然秒交或长时间卡住
+  const dice = Math.random();
+  if (dice < 0.05) {
+    delay *= 0.3; // 突然快速决策
+  } else if (dice > 0.96) {
+    delay *= 1.8; // 突然卡住
+  }
+
+  delay = Math.max(800, Math.floor(delay));
+
   // 不超过阶段计时器上限的 80%
   if (maxTimeout) {
     return Math.min(delay, maxTimeout * 800);
   }
   return delay;
 }
+
 
 async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -147,7 +178,8 @@ export async function decideNightAction(
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
   // 模拟思考延迟
-  await sleep(getRandomDelay('night'));
+  await sleep(getRandomDelay('night', undefined, getPersona(state.roomId, aiPlayer.userId)));
+
 
   // 调用 LLM
   let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 500 });
@@ -183,8 +215,24 @@ export async function decideNightAction(
 
   // 解析结果
   if (parsed) {
-    return buildNightActionResult(aiPlayer.role, parsed, availableTargets);
+    const built = buildNightActionResult(aiPlayer.role, parsed, availableTargets);
+    const { target, corrections } = guardNightAction(
+      state,
+      aiPlayer,
+      built.action,
+      built.target,
+      availableTargets,
+    );
+    if (corrections.length > 0) {
+      console.warn(
+        `[AIGuard] ${ctx.seatNumber}号${ctx.nickname} 夜间行动被纠正：` +
+        corrections.map(c => `${c.from}→${c.to}(${c.reason})`).join('; '),
+      );
+      built.target = target;
+    }
+    return built;
   }
+
 
   // Fallback
   fallback = true;
@@ -241,7 +289,7 @@ function buildNightActionResult(role: string, parsed: Record<string, unknown>, v
   }
 }
 
-function fallbackNightAction(
+export function fallbackNightAction(
   role: string,
   validTargets: string[],
   witchInfo?: { victim: string | null; hasAntidote: boolean; hasPoison: boolean; canSelfSave: boolean },
@@ -257,21 +305,15 @@ function fallbackNightAction(
       return { action: 'attack', target: randomTarget };
     case ROLES.SEER:
       return { action: 'investigate', target: randomTarget };
-    case ROLES.WITCH: {
-      // 女巫智能兜底：第一轮有人被杀且有解药 → 默认救人
-      if (witchInfo?.victim && witchInfo.hasAntidote) {
-        const round = state?.round ?? 1;
-        // 第一轮大概率救人（80%），后续轮次保守不救（保留解药）
-        if (round === 1 || Math.random() < 0.3) {
-          return { action: 'usePotion', potion: 'antidote' };
-        }
-      }
+    case ROLES.WITCH:
+      // 女巫用药属于可选行动，模型失败或超时时默认不使用药物。
       return { action: 'usePotion', potion: 'none' };
-    }
     case ROLES.GUARD:
       return { action: 'guard', target: randomTarget };
     case ROLES.GRAVEDIGGER:
-      return { action: 'autopsy' };
+      return randomTarget
+        ? { action: 'autopsy', target: randomTarget }
+        : { action: 'autopsy' };
     default:
       return { action: 'skip' };
   }
@@ -323,16 +365,19 @@ export async function decideMarking(
     availableReasons.push('用药结果(potion_result)');
   }
 
+  const persona = getPersona(state.roomId, aiPlayer.userId);
   const actionPrompt = getMarkingPrompt({
     evaluationMarkCount,
     availableIdentities,
     availableTargets: targets,
     availableReasons,
+    analysisPreference: persona.analysisPreference,
   });
 
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
-  await sleep(getRandomDelay('marking'));
+  await sleep(getRandomDelay('marking', undefined, persona));
+
 
   let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 1000 });
   let parsed = result.success ? extractJSON(result.content) : null;
@@ -381,57 +426,31 @@ export async function decideMarking(
   });
 
   if (parsed && parsed.identity && Array.isArray(parsed.evaluations)) {
-    const markResult = buildMarkingResult(parsed, targets, evaluationMarkCount, availableIdentities);
-    // 最终防护：狼人阵营声称"狼人"身份时强制改为"好人"
-    if (aiPlayer.faction === 'evil' && markResult.identityMark.identity === '狼人') {
-      markResult.identityMark.identity = '好人';
-    }
-    // 最终防护：预言家的评价必须与查验结论一致
-    if (aiPlayer.role === ROLES.SEER) {
-      enforceSeerConsistency(markResult, state, aiPlayer);
+    const markResult = buildMarkingResult(parsed, targets, evaluationMarkCount, availableIdentities, state, aiPlayer, persona);
+
+    // 语义校验：狼人自曝、查验矛盾、指控队友、越权理由
+    const corrections = guardMarking(
+      state,
+      aiPlayer,
+      markResult.identityMark,
+      markResult.evaluationMarks,
+    );
+    if (corrections.length > 0) {
+      console.warn(
+        `[AIGuard] ${ctx.seatNumber}号${ctx.nickname} 标记被纠正：` +
+        corrections.map(c => `${c.field} ${c.from}→${c.to}(${c.reason})`).join('; '),
+      );
     }
     return markResult;
   }
+
 
   // Fallback
   return fallbackMarking(aiPlayer, targets, evaluationMarkCount, availableIdentities, state);
 }
 
-/**
- * 预言家查验结论强制修正：确保标记评价与查验结果一致
- * 例如查验6号为好人，评价中绝不能标记6号为狼人
- */
-function enforceSeerConsistency(
-  markResult: MarkingResult,
-  state: GameState,
-  aiPlayer: GamePlayer,
-): void {
-  // 收集所有查验过的目标及其阵营
-  const seerResults = new Map<string, 'good' | 'evil'>();
-  for (const round of state.history.rounds) {
-    if (round.seer?.target) {
-      const target = state.players.find(p => p.userId === round.seer!.target);
-      if (target) {
-        seerResults.set(target.userId, target.faction as 'good' | 'evil');
-      }
-    }
-  }
-  if (seerResults.size === 0) return;
-
-  // 修正评价中与查验结论矛盾的项
-  for (const evaluation of markResult.evaluationMarks) {
-    const verified = seerResults.get(evaluation.target);
-    if (!verified) continue;
-
-    const expectedIdentity = verified === 'good' ? '好人' : '狼人';
-    if (evaluation.identity !== expectedIdentity) {
-      evaluation.identity = expectedIdentity;
-      evaluation.reason = SPECIAL_REASONS.INVESTIGATION as MarkReason;
-    }
-  }
-}
-
 // 中文理由→英文key映射，容错AI返回中文的情况
+
 const REASON_CN_TO_EN: Record<string, string> = {
   '直觉判断': COMMON_REASONS.INTUITION,
   '投票分析': COMMON_REASONS.VOTE_ANALYSIS,
@@ -457,35 +476,111 @@ function buildMarkingResult(
   targets: { userId: string; nickname: string; seatNumber: number }[],
   evalCount: number,
   availableIdentities: string[],
+  state?: GameState,
+  aiPlayer?: GamePlayer,
+  persona?: AIPersona,
 ): MarkingResult {
+
   const validReasons: string[] = [...Object.values(COMMON_REASONS), ...Object.values(SPECIAL_REASONS)];
 
-  const identity = typeof parsed.identity === 'string' ? parsed.identity : '好人';
+  const fallbackIdentity = availableIdentities.includes('好人')
+    ? '好人'
+    : (availableIdentities[0] || '好人');
+  const identity = typeof parsed.identity === 'string' && availableIdentities.includes(parsed.identity)
+    ? parsed.identity
+    : fallbackIdentity;
   const parsedReason = typeof parsed.reason === 'string' ? parsed.reason : '';
   const reason: MarkReason = normalizeReason(parsedReason, validReasons);
+  const evaluationIdentities = new Set([...availableIdentities, '狼人']);
 
   const evaluations = (parsed.evaluations as Array<Record<string, unknown>>)
     .slice(0, evalCount)
     .filter(e => targets.some(t => t.userId === e.target))
     .map(e => {
       const eReason = typeof e.reason === 'string' ? e.reason : '';
+      const rawIdentity = typeof e.identity === 'string' ? e.identity : '';
       return {
         target: e.target as string,
-        identity: typeof e.identity === 'string' ? e.identity : '好人',
+        identity: evaluationIdentities.has(rawIdentity) ? rawIdentity : fallbackIdentity,
         reason: normalizeReason(eReason, validReasons),
       };
     });
 
-  // 补齐评价数量
+  // === 补齐评价数量 ===
+  // 旧实现按数组顺序 shift() 并硬编码「好人 + 直觉判断」，导致理由分布异常集中、
+  // 评价目标呈现固定顺序。改为：按场上嫌疑度排序挑选目标，并根据可用历史数据选择合理理由。
   const usedTargets = new Set(evaluations.map(e => e.target));
-  const remaining = targets.filter(t => !usedTargets.has(t.userId));
-  while (evaluations.length < evalCount && remaining.length > 0) {
-    const t = remaining.shift()!;
-    evaluations.push({
-      target: t.userId,
-      identity: '好人',
-      reason: COMMON_REASONS.INTUITION,
+  let remaining = targets.filter(t => !usedTargets.has(t.userId));
+
+  if (remaining.length > 0 && evaluations.length < evalCount) {
+    // 统计被标记为"狼人"的次数，作为注意力权重
+    const suspicion = new Map<string, number>();
+    if (state) {
+      for (const mark of state.history.marks) {
+        for (const ev of mark.evaluationMarks) {
+          if (ev.identity === '狼人') {
+            suspicion.set(ev.target, (suspicion.get(ev.target) || 0) + 1);
+          }
+        }
+      }
+    }
+    // 真人的注意力是有偏的：先评价自己更"在意"的人，而不是按 userId 顺序
+    remaining = remaining.sort((a, b) => {
+      const diff = (suspicion.get(b.userId) || 0) - (suspicion.get(a.userId) || 0);
+      return diff !== 0 ? diff : Math.random() - 0.5;
     });
+
+    // 依据实际可用的历史数据挑理由，避免无脑 intuition
+    const usableReasons: MarkReason[] = [COMMON_REASONS.INTUITION as MarkReason];
+    if (state && state.history.votes.length > 0) {
+      usableReasons.push(COMMON_REASONS.VOTE_ANALYSIS as MarkReason);
+    }
+    if (state && state.history.marks.length > 0) {
+      usableReasons.push(COMMON_REASONS.MARK_ANALYSIS as MarkReason);
+    }
+    if (state && state.history.deaths.length > 0) {
+      usableReasons.push(COMMON_REASONS.LOG_REASONING as MarkReason);
+    }
+
+    const teammateIds = new Set<string>(
+      state && aiPlayer && aiPlayer.faction === 'evil'
+        ? state.players.filter(p => p.faction === 'evil' && p.userId !== aiPlayer.userId).map(p => p.userId)
+        : [],
+    );
+
+    while (evaluations.length < evalCount && remaining.length > 0) {
+      const t = remaining.shift()!;
+      const sus = suspicion.get(t.userId) || 0;
+      // 队友一律标好人；其余按嫌疑度给出有倾向但不绝对的判断
+      let evalIdentity = '好人';
+      if (!teammateIds.has(t.userId)) {
+        if (sus >= 2) {
+          evalIdentity = Math.random() < 0.55 ? '狼人' : '好人';
+        } else if (sus === 1) {
+          evalIdentity = Math.random() < 0.25 ? '狼人' : '好人';
+        }
+      }
+      // 理由选择受人格直觉倾向影响：直觉型多用"直觉判断"，分析型多用分析类理由
+      const bias = persona ? persona.intuitionBias : 0.25;
+      let pickedReason: MarkReason;
+      if (Math.random() < bias) {
+        pickedReason = COMMON_REASONS.INTUITION as MarkReason;
+      } else if (sus > 0 && usableReasons.includes(COMMON_REASONS.MARK_ANALYSIS as MarkReason)) {
+        pickedReason = COMMON_REASONS.MARK_ANALYSIS as MarkReason;
+      } else {
+        const analytical = usableReasons.filter(r => r !== COMMON_REASONS.INTUITION);
+        pickedReason = analytical.length > 0
+          ? analytical[Math.floor(Math.random() * analytical.length)]
+          : (COMMON_REASONS.INTUITION as MarkReason);
+      }
+
+
+      evaluations.push({
+        target: t.userId,
+        identity: evalIdentity,
+        reason: pickedReason,
+      });
+    }
   }
 
   return {
@@ -498,7 +593,8 @@ function buildMarkingResult(
   };
 }
 
-function fallbackMarking(
+
+export function fallbackMarking(
   aiPlayer: GamePlayer,
   targets: { userId: string; nickname: string; seatNumber: number }[],
   evalCount: number,
@@ -605,13 +701,15 @@ export async function decideVote(
     return { userId, nickname, seatNumber: p?.seatNumber || 0 };
   });
 
+  const persona = getPersona(state.roomId, aiPlayer.userId);
   const actionPrompt = getVotingPrompt(targetDetails, {
     seatNumber: ctx.seatNumber,
     nickname: ctx.nickname,
-  }, aiPlayer.seatNumber);
+  }, persona.analysisPreference);
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
-  await sleep(getRandomDelay('voting'));
+  await sleep(getRandomDelay('voting', undefined, persona));
+
 
   let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 500 });
   let parsed = result.success ? extractJSON(result.content) : null;
@@ -642,8 +740,17 @@ export async function decideVote(
   });
 
   if (parsed && isValidTarget(parsed.target, validCandidates)) {
-    return parsed.target;
+    // 语义校验：LLM 返回了合法格式，但决策可能违背自己的私有信息
+    const { target, corrections } = guardVote(state, aiPlayer, parsed.target, validCandidates);
+    if (corrections.length > 0) {
+      console.warn(
+        `[AIGuard] ${ctx.seatNumber}号${ctx.nickname} 投票被纠正：` +
+        corrections.map(c => `${c.from}→${c.to}(${c.reason})`).join('; '),
+      );
+    }
+    return target;
   }
+
 
   // Fallback: 基于策略投票而非纯随机
   return fallbackVote(state, aiPlayer, validCandidates);
@@ -654,7 +761,7 @@ export async function decideVote(
  * - 狼人：不投队友，优先投被标记为狼人次数最少（被好人保护）的非队友
  * - 好人：优先投被多人标记为狼人的目标
  */
-function fallbackVote(state: GameState, aiPlayer: GamePlayer, validCandidates: string[]): string {
+export function fallbackVote(state: GameState, aiPlayer: GamePlayer, validCandidates: string[]): string {
   // 统计每个候选人被标记为"狼人"的次数
   const wolfMarkCount = new Map<string, number>();
   for (const cand of validCandidates) {
@@ -737,7 +844,8 @@ export async function decideTriggerAction(
 
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
-  await sleep(getRandomDelay('trigger'));
+  await sleep(getRandomDelay('trigger', undefined, getPersona(state.roomId, aiPlayer.userId)));
+
 
   const result = await callLLM({ systemPrompt, userPrompt, maxTokens: 400 });
   const parsed = result.success ? extractJSON(result.content) : null;
@@ -758,9 +866,23 @@ export async function decideTriggerAction(
 
   if (parsed) {
     const action = typeof parsed.action === 'string' ? parsed.action : 'skip';
-    const target = isValidTarget(parsed.target, availableTargets) ? parsed.target : undefined;
+    const rawTarget = isValidTarget(parsed.target, availableTargets) ? parsed.target : undefined;
+    const { target, corrections } = guardTriggerAction(
+      state,
+      aiPlayer,
+      triggerType,
+      rawTarget,
+      availableTargets,
+    );
+    if (corrections.length > 0) {
+      console.warn(
+        `[AIGuard] ${ctx.seatNumber}号${ctx.nickname} ${triggerType} 被纠正：` +
+        corrections.map(c => `${c.from}→${c.to}(${c.reason})`).join('; '),
+      );
+    }
     return { action, target };
   }
+
 
   return { action: 'skip' };
 }

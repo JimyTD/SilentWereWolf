@@ -8,12 +8,33 @@ import {
   decideNightAction,
   decideMarking,
   decideVote,
+  decideTriggerAction,
+  fallbackNightAction,
+  fallbackMarking,
+  fallbackVote,
 } from '../game/ai/AIPlayerController';
 import { flushLogs } from '../game/ai/AILogger';
 import { testAIConnection } from '../game/ai/AIApiClient';
 
 type IOServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
+const AI_ACTION_TIMEOUT_MS = 60000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutHandle = setTimeout(() => reject(new Error(`${label}超时(${timeoutMs / 1000}s)`)), timeoutMs);
+    promise.then(
+      value => {
+        clearTimeout(timeoutHandle);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timeoutHandle);
+        reject(error);
+      },
+    );
+  });
+}
 
 export function registerSocketHandlers(
   io: IOServer,
@@ -31,6 +52,7 @@ export function registerSocketHandlers(
     if (room) {
       socket.join(existingUser.roomId);
       const gm = roomManager.getGameManager(existingUser.roomId);
+      gm?.handlePlayerConnectionChange(userId, true);
       if (gm && room.status === 'playing') {
         const state = gm.getState();
         const player = state.players.find(p => p.userId === userId);
@@ -272,7 +294,7 @@ export function registerSocketHandlers(
       if (!user?.roomId) return;
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
-      gm.handleNightAction(userId, data);
+      gm.handleNightAction(userId, data, data.actionId);
     } catch (err) {
       console.error('[client:nightAction] 错误:', err);
     }
@@ -291,7 +313,7 @@ export function registerSocketHandlers(
         identityMark: data.identityMark,
         evaluationMarks: data.evaluationMarks,
       };
-      gm.handleSubmitMarks(userId, marks);
+      gm.handleSubmitMarks(userId, marks, data.actionId);
     } catch (err) {
       console.error('[client:submitMarks] 错误:', err);
     }
@@ -303,7 +325,7 @@ export function registerSocketHandlers(
       if (!user?.roomId) return;
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
-      gm.handleVote(userId, data.target);
+      gm.handleVote(userId, data.target, data.actionId);
     } catch (err) {
       console.error('[client:vote] 错误:', err);
     }
@@ -317,7 +339,7 @@ export function registerSocketHandlers(
       if (!user?.roomId) return;
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
-      gm.handleHunterAction(userId, data.action, data.target);
+      gm.handleHunterAction(userId, data.action, data.target, data.actionId);
     } catch (err) {
       console.error('[client:hunterAction] 错误:', err);
     }
@@ -329,7 +351,7 @@ export function registerSocketHandlers(
       if (!user?.roomId) return;
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
-      gm.handleKnightAction(userId, data.action, data.target);
+      gm.handleKnightAction(userId, data.action, data.target, data.actionId);
     } catch (err) {
       console.error('[client:knightAction] 错误:', err);
     }
@@ -341,7 +363,7 @@ export function registerSocketHandlers(
       if (!user?.roomId) return;
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
-      gm.handleWolfKingAction(userId, data.action, data.target);
+      gm.handleWolfKingAction(userId, data.action, data.target, data.actionId);
     } catch (err) {
       console.error('[client:wolfKingAction] 错误:', err);
     }
@@ -353,6 +375,8 @@ export function registerSocketHandlers(
     console.log(`[断线] ${nickname}(${userId}) 已断线`);
     const result = roomManager.handleDisconnect(userId);
     if (result.roomId) {
+      const gm = roomManager.getGameManager(result.roomId);
+      gm?.handlePlayerConnectionChange(userId, false);
       io.to(result.roomId).emit('server:playerLeft', { userId });
     }
   });
@@ -492,10 +516,10 @@ function bindGameCallbacks(
     });
   };
 
-  gm.onNightActionPrompt = (targetUserId, roleName, targets, witchInfo) => {
+  gm.onNightActionPrompt = (targetUserId, roleName, targets, witchInfo, actionId) => {
     // AI 玩家：调用 AIPlayerController 决策
     if (roomManager.isAI(targetUserId)) {
-      handleAINightAction(gm, roomManager, roomId, targetUserId, roleName, targets, witchInfo);
+      handleAINightAction(gm, roomManager, roomId, targetUserId, roleName, targets, witchInfo, actionId);
       return;
     }
 
@@ -508,6 +532,7 @@ function bindGameCallbacks(
 
     const prompt: Parameters<ServerToClientEvents['server:nightAction']>[0] = {
       role: roleName,
+      actionId,
       timeout,
       availableTargets: targets,
     };
@@ -517,13 +542,13 @@ function bindGameCallbacks(
     io.to(user.socketId).emit('server:nightAction', prompt);
   };
 
-  gm.onWolfVoteUpdate = (wolfUserIds, votes) => {
+  gm.onWolfVoteUpdate = (wolfUserIds, votes, actionId) => {
     // 向所有存活的真人狼人推送队友的投票情况
     for (const wolfId of wolfUserIds) {
       if (roomManager.isAI(wolfId)) continue;
       const user = roomManager.getUser(wolfId);
       if (!user) continue;
-      io.to(user.socketId).emit('server:wolfVoteUpdate', { votes });
+      io.to(user.socketId).emit('server:wolfVoteUpdate', { votes, actionId });
     }
   };
 
@@ -559,7 +584,7 @@ function bindGameCallbacks(
     });
   };
 
-  gm.onMarkingTurn = (targetUserId, evaluationMarkCount, identities) => {
+  gm.onMarkingTurn = (targetUserId, evaluationMarkCount, identities, actionId) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
 
@@ -567,6 +592,7 @@ function bindGameCallbacks(
     io.to(roomId).emit('server:markingTurn', {
       yourTurn: false,
       currentPlayer: targetUserId,
+      actionId,
       timeout: room.settings.timers?.marking || 60,
       evaluationMarkCount,
       availableIdentities: identities,
@@ -574,7 +600,7 @@ function bindGameCallbacks(
 
     // AI 玩家：调用 AIPlayerController 决策
     if (roomManager.isAI(targetUserId)) {
-      handleAIMarking(gm, roomManager, roomId, targetUserId, evaluationMarkCount, identities);
+      handleAIMarking(gm, roomManager, roomId, targetUserId, evaluationMarkCount, identities, actionId);
       return;
     }
 
@@ -584,6 +610,7 @@ function bindGameCallbacks(
       io.to(user.socketId).emit('server:markingTurn', {
         yourTurn: true,
         currentPlayer: targetUserId,
+        actionId,
         timeout: room.settings.timers?.marking || 60,
         evaluationMarkCount,
         availableIdentities: identities,
@@ -595,15 +622,16 @@ function bindGameCallbacks(
     io.to(roomId).emit('server:marksRevealed', marks);
   };
 
-  gm.onVotingStart = (candidates) => {
+  gm.onVotingStart = (candidates, actionId) => {
     const room = roomManager.getRoom(roomId);
     io.to(roomId).emit('server:votingStart', {
+      actionId,
       timeout: room?.settings.timers?.voting || 30,
       candidates,
     });
 
     // 所有 AI 玩家自动投票
-    handleAIVoting(gm, roomManager, roomId, candidates);
+    handleAIVoting(gm, roomManager, roomId, candidates, actionId);
   };
 
   gm.onVotingResult = (votes, exiled, tie) => {
@@ -612,16 +640,16 @@ function bindGameCallbacks(
 
   // ========== 触发链回调 ==========
 
-  gm.onHunterTrigger = (targetUserId, canShoot, targets) => {
+  gm.onHunterTrigger = (targetUserId, canShoot, targets, actionId) => {
     // AI 猎人自动决策
     if (roomManager.isAI(targetUserId)) {
-      handleAIHunterAction(gm, roomManager, roomId, targetUserId, canShoot, targets);
+      handleAIHunterAction(gm, roomManager, roomId, targetUserId, canShoot, targets, actionId);
       return;
     }
 
     const user = roomManager.getUser(targetUserId);
     if (!user) return;
-    io.to(user.socketId).emit('server:hunterTrigger', { canShoot, timeout: 30 });
+    io.to(user.socketId).emit('server:hunterTrigger', { canShoot, timeout: 60, actionId });
     // 通知所有人进入猎人阶段
     io.to(roomId).emit('server:phaseChange', { phase: 'day_trigger', round: gm.getState().round });
   };
@@ -630,16 +658,16 @@ function bindGameCallbacks(
     io.to(roomId).emit('server:hunterResult', { shooter, target, targetDeath });
   };
 
-  gm.onWolfKingTrigger = (targetUserId, targets) => {
+  gm.onWolfKingTrigger = (targetUserId, targets, actionId) => {
     // AI 白狼王自动决策
     if (roomManager.isAI(targetUserId)) {
-      handleAIWolfKingAction(gm, roomManager, roomId, targetUserId, targets);
+      handleAIWolfKingAction(gm, roomManager, roomId, targetUserId, targets, actionId);
       return;
     }
 
     const user = roomManager.getUser(targetUserId);
     if (!user) return;
-    io.to(user.socketId).emit('server:wolfKingTrigger', { timeout: 30 });
+    io.to(user.socketId).emit('server:wolfKingTrigger', { timeout: 60, actionId });
     io.to(roomId).emit('server:phaseChange', { phase: 'day_trigger', round: gm.getState().round });
   };
 
@@ -651,16 +679,16 @@ function bindGameCallbacks(
     io.to(roomId).emit('server:foolImmunity', { userId: foolUserId });
   };
 
-  gm.onKnightTurn = (targetUserId, canDuel, targets) => {
+  gm.onKnightTurn = (targetUserId, canDuel, targets, actionId) => {
     // AI 骑士自动决策
     if (roomManager.isAI(targetUserId)) {
-      handleAIKnightAction(gm, roomManager, roomId, targetUserId, canDuel, targets);
+      handleAIKnightAction(gm, roomManager, roomId, targetUserId, canDuel, targets, actionId);
       return;
     }
 
     const user = roomManager.getUser(targetUserId);
     if (!user) return;
-    io.to(user.socketId).emit('server:knightTurn', { canDuel, timeout: 30 });
+    io.to(user.socketId).emit('server:knightTurn', { canDuel, timeout: 60, actionId });
     // 通知所有人谁可以决斗
     io.to(roomId).emit('server:phaseChange', { phase: 'day_knight', round: gm.getState().round });
   };
@@ -711,21 +739,44 @@ async function handleAINightAction(
   roleName: string,
   targets: string[],
   witchInfo?: { victim: string | null; hasAntidote: boolean; hasPoison: boolean; canSelfSave: boolean },
+  actionId?: string,
 ): Promise<void> {
+  const state = gm.getState();
+  const room = roomManager.getRoom(roomId);
+  if (!room) return;
+
+  const aiPlayer = state.players.find(p => p.userId === aiUserId);
+  if (!aiPlayer) return;
+
+  let result: Awaited<ReturnType<typeof decideNightAction>>;
+  let fallbackUsed = false;
   try {
-    const state = gm.getState();
-    const room = roomManager.getRoom(roomId);
-    if (!room) return;
-
-    const aiPlayer = state.players.find(p => p.userId === aiUserId);
-    if (!aiPlayer) return;
-
-    const result = await decideNightAction(state, room, aiPlayer, targets, witchInfo);
-    console.log(`[AI] ${room.players.find(p => p.userId === aiUserId)?.nickname} 夜晚行动:`, result);
-
-    gm.handleNightAction(aiUserId, result);
+    result = await withTimeout(
+      decideNightAction(state, room, aiPlayer, targets, witchInfo),
+      AI_ACTION_TIMEOUT_MS,
+      'AI 夜晚决策',
+    );
   } catch (err) {
-    console.error(`[AI] 夜晚行动出错(${aiUserId}):`, err);
+    fallbackUsed = true;
+    console.error(`[AI] 夜晚决策失败，使用兜底(${aiUserId}):`, err);
+    result = fallbackNightAction(roleName, targets, witchInfo, state);
+  }
+
+  console.log(`[AI] ${room.players.find(p => p.userId === aiUserId)?.nickname} 夜晚行动:`, result);
+  let submitted = gm.handleNightAction(aiUserId, result, actionId);
+
+  if (!submitted && !fallbackUsed) {
+    fallbackUsed = true;
+    console.warn(`[AI] 夜晚行动未被接受，使用兜底(${aiUserId})`);
+    submitted = gm.handleNightAction(
+      aiUserId,
+      fallbackNightAction(roleName, targets, witchInfo, state),
+      actionId,
+    );
+  }
+
+  if (!submitted) {
+    console.error(`[AI] 夜晚行动最终提交失败(${aiUserId}, actionId=${actionId || 'legacy'})`);
   }
 }
 
@@ -736,27 +787,58 @@ async function handleAIMarking(
   aiUserId: string,
   evaluationMarkCount: number,
   identities: string[],
+  actionId?: string,
 ): Promise<void> {
+  const state = gm.getState();
+  const room = roomManager.getRoom(roomId);
+  if (!room) return;
+
+  const aiPlayer = state.players.find(p => p.userId === aiUserId);
+  if (!aiPlayer) return;
+
+  const targets = state.players
+    .filter(player => player.alive && player.userId !== aiUserId)
+    .map(player => ({
+      userId: player.userId,
+      nickname: room.players.find(roomPlayer => roomPlayer.userId === player.userId)?.nickname || '未知',
+      seatNumber: player.seatNumber,
+    }));
+
+  let result: Awaited<ReturnType<typeof decideMarking>>;
+  let fallbackUsed = false;
   try {
-    const state = gm.getState();
-    const room = roomManager.getRoom(roomId);
-    if (!room) return;
+    result = await withTimeout(
+      decideMarking(state, room, aiPlayer, evaluationMarkCount, identities),
+      AI_ACTION_TIMEOUT_MS,
+      'AI 标记决策',
+    );
+  } catch (err) {
+    fallbackUsed = true;
+    console.error(`[AI] 标记决策失败，使用兜底(${aiUserId}):`, err);
+    result = fallbackMarking(aiPlayer, targets, evaluationMarkCount, identities, state);
+  }
 
-    const aiPlayer = state.players.find(p => p.userId === aiUserId);
-    if (!aiPlayer) return;
+  console.log(`[AI] ${room.players.find(p => p.userId === aiUserId)?.nickname} 标记发言:`, result.identityMark.identity);
 
-    const result = await decideMarking(state, room, aiPlayer, evaluationMarkCount, identities);
-    console.log(`[AI] ${room.players.find(p => p.userId === aiUserId)?.nickname} 标记发言:`, result.identityMark.identity);
-
+  const submit = (markResult: Awaited<ReturnType<typeof decideMarking>>): boolean => {
     const marks: PlayerMarks = {
       player: aiUserId,
       round: state.round,
-      identityMark: result.identityMark,
-      evaluationMarks: result.evaluationMarks,
+      identityMark: markResult.identityMark,
+      evaluationMarks: markResult.evaluationMarks,
     };
-    gm.handleSubmitMarks(aiUserId, marks);
-  } catch (err) {
-    console.error(`[AI] 标记发言出错(${aiUserId}):`, err);
+    return gm.handleSubmitMarks(aiUserId, marks, actionId);
+  };
+
+  let submitted = submit(result);
+  if (!submitted && !fallbackUsed) {
+    fallbackUsed = true;
+    console.warn(`[AI] 标记未被接受，使用兜底(${aiUserId})`);
+    submitted = submit(fallbackMarking(aiPlayer, targets, evaluationMarkCount, identities, state));
+  }
+
+  if (!submitted) {
+    console.error(`[AI] 标记最终提交失败(${aiUserId}, actionId=${actionId || 'legacy'})`);
   }
 }
 
@@ -765,6 +847,7 @@ async function handleAIVoting(
   roomManager: RoomManager,
   roomId: string,
   candidates: string[],
+  actionId?: string,
 ): Promise<void> {
   const state = gm.getState();
   const room = roomManager.getRoom(roomId);
@@ -776,12 +859,41 @@ async function handleAIVoting(
   );
 
   for (const aiPlayer of aiVoters) {
+    const validCandidates = candidates.filter(candidate => candidate !== aiPlayer.userId);
+    if (validCandidates.length === 0) {
+      console.error(`[AI] 没有合法投票目标(${aiPlayer.userId}, actionId=${actionId || 'legacy'})`);
+      continue;
+    }
+
+    let target: string;
+    let fallbackUsed = false;
     try {
-      const target = await decideVote(state, room, aiPlayer, candidates);
-      console.log(`[AI] ${room.players.find(p => p.userId === aiPlayer.userId)?.nickname} 投票: → ${target}`);
-      gm.handleVote(aiPlayer.userId, target);
+      target = await withTimeout(
+        decideVote(state, room, aiPlayer, candidates),
+        AI_ACTION_TIMEOUT_MS,
+        'AI 投票决策',
+      );
     } catch (err) {
-      console.error(`[AI] 投票出错(${aiPlayer.userId}):`, err);
+      fallbackUsed = true;
+      console.error(`[AI] 投票决策失败，使用兜底(${aiPlayer.userId}):`, err);
+      target = fallbackVote(state, aiPlayer, validCandidates);
+    }
+
+    console.log(`[AI] ${room.players.find(p => p.userId === aiPlayer.userId)?.nickname} 投票: → ${target}`);
+    let submitted = gm.handleVote(aiPlayer.userId, target, actionId);
+
+    if (!submitted && !fallbackUsed) {
+      fallbackUsed = true;
+      console.warn(`[AI] 投票未被接受，使用兜底(${aiPlayer.userId})`);
+      submitted = gm.handleVote(
+        aiPlayer.userId,
+        fallbackVote(state, aiPlayer, validCandidates),
+        actionId,
+      );
+    }
+
+    if (!submitted) {
+      console.error(`[AI] 投票最终提交失败(${aiPlayer.userId}, actionId=${actionId || 'legacy'})`);
     }
   }
 }
@@ -790,17 +902,42 @@ async function handleAIVoting(
 async function handleAIHunterAction(
   gm: GameManager,
   roomManager: RoomManager,
-  _roomId: string,
+  roomId: string,
   aiUserId: string,
   canShoot: boolean,
   targets: string[],
+  actionId?: string,
 ): Promise<void> {
-  // AI 猎人总是开枪，随机选一个目标
-  if (canShoot && targets.length > 0) {
-    const target = targets[Math.floor(Math.random() * targets.length)];
-    gm.handleHunterAction(aiUserId, 'shoot', target);
-  } else {
-    gm.handleHunterAction(aiUserId, 'skip');
+  const submitSkip = (): boolean => gm.handleHunterAction(aiUserId, 'skip', undefined, actionId);
+  if (!canShoot || targets.length === 0) {
+    submitSkip();
+    return;
+  }
+
+  const state = gm.getState();
+  const room = roomManager.getRoom(roomId);
+  const aiPlayer = state.players.find(player => player.userId === aiUserId);
+  if (!room || !aiPlayer) {
+    submitSkip();
+    return;
+  }
+
+  try {
+    const result = await withTimeout(
+      decideTriggerAction(state, room, aiPlayer, 'hunter_shoot', targets, { canShoot }),
+      AI_ACTION_TIMEOUT_MS,
+      'AI 猎人决策',
+    );
+    const target = result.action === 'shoot' && targets.includes(result.target || '')
+      ? result.target
+      : undefined;
+    const submitted = target
+      ? gm.handleHunterAction(aiUserId, 'shoot', target, actionId)
+      : submitSkip();
+    if (!submitted) submitSkip();
+  } catch (err) {
+    console.error(`[AI] 猎人决策失败，跳过开枪(${aiUserId}):`, err);
+    submitSkip();
   }
 }
 
@@ -808,16 +945,41 @@ async function handleAIHunterAction(
 async function handleAIWolfKingAction(
   gm: GameManager,
   roomManager: RoomManager,
-  _roomId: string,
+  roomId: string,
   aiUserId: string,
   targets: string[],
+  actionId?: string,
 ): Promise<void> {
-  // AI 白狼王总是带人，随机选一个目标
-  if (targets.length > 0) {
-    const target = targets[Math.floor(Math.random() * targets.length)];
-    gm.handleWolfKingAction(aiUserId, 'drag', target);
-  } else {
-    gm.handleWolfKingAction(aiUserId, 'skip');
+  const submitSkip = (): boolean => gm.handleWolfKingAction(aiUserId, 'skip', undefined, actionId);
+  if (targets.length === 0) {
+    submitSkip();
+    return;
+  }
+
+  const state = gm.getState();
+  const room = roomManager.getRoom(roomId);
+  const aiPlayer = state.players.find(player => player.userId === aiUserId);
+  if (!room || !aiPlayer) {
+    submitSkip();
+    return;
+  }
+
+  try {
+    const result = await withTimeout(
+      decideTriggerAction(state, room, aiPlayer, 'wolf_king_drag', targets),
+      AI_ACTION_TIMEOUT_MS,
+      'AI 白狼王决策',
+    );
+    const target = result.action === 'drag' && targets.includes(result.target || '')
+      ? result.target
+      : undefined;
+    const submitted = target
+      ? gm.handleWolfKingAction(aiUserId, 'drag', target, actionId)
+      : submitSkip();
+    if (!submitted) submitSkip();
+  } catch (err) {
+    console.error(`[AI] 白狼王决策失败，跳过带人(${aiUserId}):`, err);
+    submitSkip();
   }
 }
 
@@ -825,17 +987,41 @@ async function handleAIWolfKingAction(
 async function handleAIKnightAction(
   gm: GameManager,
   roomManager: RoomManager,
-  _roomId: string,
+  roomId: string,
   aiUserId: string,
   canDuel: boolean,
   targets: string[],
+  actionId?: string,
 ): Promise<void> {
-  // AI 骑士：第一轮不决斗，后续随机决定是否决斗
+  const submitSkip = (): boolean => gm.handleKnightAction(aiUserId, 'skip', undefined, actionId);
+  if (!canDuel || targets.length === 0) {
+    submitSkip();
+    return;
+  }
+
   const state = gm.getState();
-  if (canDuel && targets.length > 0 && state.round > 1 && Math.random() > 0.5) {
-    const target = targets[Math.floor(Math.random() * targets.length)];
-    gm.handleKnightAction(aiUserId, 'duel', target);
-  } else {
-    gm.handleKnightAction(aiUserId, 'skip');
+  const room = roomManager.getRoom(roomId);
+  const aiPlayer = state.players.find(player => player.userId === aiUserId);
+  if (!room || !aiPlayer) {
+    submitSkip();
+    return;
+  }
+
+  try {
+    const result = await withTimeout(
+      decideTriggerAction(state, room, aiPlayer, 'knight_duel', targets),
+      AI_ACTION_TIMEOUT_MS,
+      'AI 骑士决策',
+    );
+    const target = result.action === 'duel' && targets.includes(result.target || '')
+      ? result.target
+      : undefined;
+    const submitted = target
+      ? gm.handleKnightAction(aiUserId, 'duel', target, actionId)
+      : submitSkip();
+    if (!submitted) submitSkip();
+  } catch (err) {
+    console.error(`[AI] 骑士决策失败，跳过决斗(${aiUserId}):`, err);
+    submitSkip();
   }
 }

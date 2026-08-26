@@ -2,34 +2,48 @@
 description: 
 alwaysApply: true
 enabled: true
-updatedAt: 2026-03-03T06:54:05.914Z
+updatedAt: 2026-07-31T00:00:00.000Z
 provider: 
 ---
 
 # 腾讯云服务器部署与更新工作流规则
 
 ## 触发条件
-当需要将代码部署或更新到腾讯云服务器（62.234.18.113）时。
+当需要将代码部署或更新到腾讯云服务器（106.55.228.236）时。
+
+> ⚠️ 历史记录：此前记录的服务器 62.234.18.113（实例 lhins-5xyrg0ei，ap-beijing）经核实已不存在（该地域下查询不到任何运行中实例，应为已释放/过期），相关信息已作废并替换为下方新服务器信息。
 
 ## 服务器环境概述
 
 ### 共享服务器信息
-- **服务器IP**: 62.234.18.113
-- **实例ID**: lhins-5xyrg0ei
-- **地域**: ap-beijing
-- **系统**: OPENCLOUDOS (LINUX_UNIX)
+- **服务器IP**: 106.55.228.236
+- **实例ID**: lhins-hwnz7rcz
+- **实例名称**: 群友机哥
+- **地域**: ap-guangzhou
+- **系统**: Ubuntu 24.04.4 LTS（LINUX_UNIX）
+- **硬件配置**: 2 核 CPU / 1.9GB 内存 / 40GB 系统盘
+- **Docker**: v29.4.1，**没有独立的 `docker-compose` 命令**，必须使用 `docker compose`（Compose Plugin v5.1.3）
+- 宿主机**未安装 nginx**（无 nginx 二进制、无 systemd 服务）
+
+### 资源现状（评估于 2026-07-31，后续部署前建议重新核查）
+- **磁盘**: 40GB 总，已用约 30GB（80%），剩余约 **7.8GB** 可用 —— 较紧张。Docker Build Cache 有约 3.6GB 可回收（`docker builder prune`），部署前可考虑先清理
+- **内存**: 总 2GB，可用约 1GB（含可回收缓存），Swap 已用约 1GB —— 较紧张，需关注新容器内存占用
+- **CPU**: 2 核，当前负载很低（load average ~0.16）
 
 ### 已有应用（禁止触碰）
-- **AndroidTaskApp** — 占用端口 80（nginx）和 3000（应用）
-- 运行目录：`/root/AndroidTaskApp_20260211200143`
-- 使用独立的 Docker 网络 `taskapp-network`
+- **QQBotForFun**（服务器所有者的 QQ 机器人项目）
+  - 容器：`qqbot-bot-1`（占用端口 **8080**）、`qqbot-napcat-1`（占用端口 **6099**）、`qqbot-postgres-1`（内部 5432）、`qqbot-redis-1`（内部 6379）
+  - Docker 网络：`qqbot_default`
+  - 运行目录：`/root/QQBotForFun_20260630151402`（软链接 `/root/qqbot` 指向此目录），另有旧版本目录 `/root/QQBotForFun_20260630193025`
+- 其他常驻进程：`openclaw-gateway`（本地端口 20739/20741，仅监听 127.0.0.1）、`chrome` 调试端口 9222（仅本地）
+- **已占用端口一览**：22（ssh）、8080（qqbot-bot）、6099（qqbot-napcat）
 
-### 本应用（SilentWerewolf）
-- **外部访问端口**: 8080（nginx 反代）
+### 本应用（SilentWerewolf）— 部分待确认
+- **外部访问端口**: ⚠️ **待定**（8080 已被 qqbot 占用，不可复用；建议改用其他空闲端口，如 8081，需与用户最终确认后再执行防火墙开放）
 - **内部应用端口**: 3001（容器内，不对外暴露）
 - **容器名**: `silentwerewolf-app`、`silentwerewolf-nginx`
-- **Docker 网络**: `silentwerewolf-network`（与其他应用完全隔离）
-- **部署方式**: Docker Compose
+- **Docker 网络**: `silentwerewolf-network`（与 `qqbot_default` 完全隔离）
+- **部署方式**: Docker Compose（使用 `docker compose` 插件命令，**不是** `docker-compose`）
 
 ## 必须遵守的流程
 
@@ -38,11 +52,12 @@ provider:
 - ❌ **禁止使用**: SSH、SCP 等传统命令
 
 ### 2. 隔离安全红线
-- ⚠️ **严禁操作** AndroidTaskApp 的任何文件或容器
-- ⚠️ **严禁使用** 端口 80 和 3000（已被占用）
-- ⚠️ **严禁修改** 宿主机级别的 nginx 配置
-- ⚠️ Docker 网络必须使用独立的 `silentwerewolf-network`，禁止加入 `taskapp-network`
+- ⚠️ **严禁操作** QQBotForFun 相关的任何文件或容器（`qqbot-bot-1`/`qqbot-napcat-1`/`qqbot-postgres-1`/`qqbot-redis-1`）
+- ⚠️ **严禁使用**已占用端口：22、8080、6099
+- ⚠️ **严禁**在宿主机层面安装/修改 nginx（该机器本身未装宿主机 nginx，反代方案在自己的容器内解决）
+- ⚠️ Docker 网络必须使用独立的 `silentwerewolf-network`，禁止加入 `qqbot_default`
 - ⚠️ 容器名必须以 `silentwerewolf-` 为前缀，避免冲突
+- ⚠️ 磁盘/内存较紧张，部署前如需清理 Docker Build Cache，须先告知用户并取得确认
 
 ### 3. 标准部署/更新步骤
 
@@ -57,25 +72,25 @@ npx vite build client
 
 #### 步骤 2: 查询服务器实例
 ```javascript
-describe_running_instances({ "Region": "ap-beijing", "Limit": 20 })
+describe_running_instances({ "Region": "ap-guangzhou", "Limit": 20 })
 ```
 
 #### 步骤 3: 上传项目文件
 ```javascript
 deploy_project_preparation({
-  "FolderPath": "I:/AIGameTest/SilentWerewolf",
-  "InstanceId": "lhins-5xyrg0ei",
-  "Region": "ap-beijing",
+  "FolderPath": "d:/Fun/SilentWereWolf",
+  "InstanceId": "lhins-hwnz7rcz",
+  "Region": "ap-guangzhou",
   "ProjectName": "SilentWerewolf"
 })
 ```
-上传会创建带时间戳的新目录（如 `/root/SilentWerewolf_20260303xxxxxx`）。
+上传会创建带时间戳的新目录（如 `/root/SilentWerewolf_20260731xxxxxx`）。
 
 #### 步骤 4: 查找当前运行目录（首次部署跳过此步）
 ```javascript
 execute_command({
-  "Region": "ap-beijing",
-  "InstanceId": "lhins-5xyrg0ei",
+  "Region": "ap-guangzhou",
+  "InstanceId": "lhins-hwnz7rcz",
   "Command": "docker ps | grep silentwerewolf"
 })
 ```
@@ -85,8 +100,8 @@ execute_command({
 **后续更新**：
 ```javascript
 execute_command({
-  "Region": "ap-beijing",
-  "InstanceId": "lhins-5xyrg0ei",
+  "Region": "ap-guangzhou",
+  "InstanceId": "lhins-hwnz7rcz",
   "Command": "rsync -av --delete --exclude='docker-compose.yml' --exclude='node_modules/' --exclude='.git/' /root/<上传目录>/ /root/<运行目录>/ && echo '✅ 同步完成'"
 })
 ```
@@ -96,20 +111,21 @@ execute_command({
 #### 步骤 6: 构建并启动容器
 ```javascript
 execute_command({
-  "Region": "ap-beijing",
-  "InstanceId": "lhins-5xyrg0ei",
-  "Command": "cd /root/<运行目录> && docker-compose up -d --build && echo '✅ 构建完成'"
+  "Region": "ap-guangzhou",
+  "InstanceId": "lhins-hwnz7rcz",
+  "Command": "cd /root/<运行目录> && docker compose up -d --build && echo '✅ 构建完成'"
 })
 ```
+- ⚠️ 使用 `docker compose`（插件模式，无中间横线），本机没有独立 `docker-compose` 命令
 - ⚠️ 必须使用 `--build` 重新构建镜像
-- ❌ 禁止使用 `docker-compose restart`（文件不会更新）
+- ❌ 禁止使用 `docker compose restart`（文件不会更新）
 
-#### 步骤 7: 开放防火墙端口（仅首次部署）
+#### 步骤 7: 开放防火墙端口（仅首次部署，端口以最终确认值为准）
 ```javascript
 create_firewall_rules({
-  "Region": "ap-beijing",
-  "InstanceId": "lhins-5xyrg0ei",
-  "FirewallRules": [{ "Protocol": "TCP", "Port": "8080", "Action": "ACCEPT" }]
+  "Region": "ap-guangzhou",
+  "InstanceId": "lhins-hwnz7rcz",
+  "FirewallRules": [{ "Protocol": "TCP", "Port": "<待确认端口>", "Action": "ACCEPT" }]
 })
 ```
 
@@ -117,36 +133,38 @@ create_firewall_rules({
 ```javascript
 // 容器内验证
 execute_command({
-  "Command": "sleep 10 && curl -s http://localhost:8080 | head -c 200"
+  "Command": "sleep 10 && curl -s http://localhost:<端口> | head -c 200"
 })
 // 外网验证
 execute_command({
-  "Command": "curl -s http://62.234.18.113:8080 | head -c 200"
+  "Command": "curl -s http://106.55.228.236:<端口> | head -c 200"
 })
-// 确认其他应用不受影响
+// 确认 QQBotForFun 不受影响
 execute_command({
-  "Command": "curl -s http://localhost:3000/health"
+  "Command": "docker ps | grep qqbot"
 })
 ```
 
 ## 关键注意事项
 1. **Docker 构建包含前端**：Dockerfile 使用多阶段构建，阶段1自动构建前端，无需本地预构建
 2. **本应用无数据库**：首版使用内存存储，无需数据卷持久化
-3. **端口分配**：本应用 8080，AndroidTaskApp 80/3000。如需新增端口必须先检查冲突
-4. **容器日志查看**：`docker-compose -f /root/<运行目录>/docker-compose.yml logs --tail=50 silentwerewolf`
+3. **端口分配**：需避开已占用的 22 / 8080 / 6099，最终端口以用户确认结果为准
+4. **磁盘余量有限**（约7.8GB可用）：构建镜像前建议先用 `docker system df` 检查，必要时清理 build cache
+5. **容器日志查看**：`docker compose -f /root/<运行目录>/docker-compose.yml logs --tail=50 silentwerewolf`
 
 ## 错误案例
 - ❌ 使用 SSH/SCP 命令
 - ❌ 只重启容器不重建镜像
-- ❌ 使用端口 80 或 3000
-- ❌ 修改 AndroidTaskApp 的任何文件
+- ❌ 使用端口 22、8080、6099
+- ❌ 使用不存在的 `docker-compose` 独立命令（应用 `docker compose`）
+- ❌ 修改 QQBotForFun 的任何文件或容器
 - ❌ 覆盖服务器的 `docker-compose.yml`
 
 ## 正确案例
 - ✅ 使用 Lighthouse API 操作
-- ✅ `docker-compose up -d --build` 重建
-- ✅ 使用端口 8080 对外
-- ✅ 更新后同时验证本应用和 AndroidTaskApp
-- ✅ 使用独立 Docker 网络
+- ✅ `docker compose up -d --build` 重建
+- ✅ 使用与 qqbot 不冲突的独立端口对外
+- ✅ 更新后同时验证本应用和 QQBotForFun
+- ✅ 使用独立 Docker 网络 `silentwerewolf-network`
 
 **规则优先级**：🔴 最高优先级

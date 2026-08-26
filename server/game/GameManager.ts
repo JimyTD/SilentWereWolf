@@ -1,5 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import type { Room } from '../../shared/types/room';
 import type { GameOverReason } from '../../shared/types/socket';
+import { clearPersonas } from './ai/AIPersona';
+
 import type {
   GameState,
   GamePlayer,
@@ -15,6 +18,7 @@ import type {
   FoolState,
   KnightState,
   HunterState,
+  MarkReason,
 } from '../../shared/types/game';
 import {
   PHASES,
@@ -24,9 +28,24 @@ import {
   NIGHT_ACTION_ORDER,
   ITEMS,
   DEATH_CAUSE,
+  COMMON_REASONS,
+  SPECIAL_REASONS,
 } from '../../shared/constants';
 import { getRolesFromSettings } from '../../shared/validators';
 import { createRole } from './roles/index';
+
+type ActionType = 'night' | 'marking' | 'voting' | 'hunter_shoot' | 'wolf_king_drag' | 'knight_duel';
+
+interface ActiveAction {
+  actionId: string;
+  round: number;
+  phase: GameState['phase'];
+  actionType: ActionType;
+  actorUserIds: string[];
+  submittedUserIds: Set<string>;
+  allowedTargets: string[];
+  timeoutHandles: Map<string, ReturnType<typeof setTimeout>>;
+}
 import {
   checkWinCondition,
   resolveNight,
@@ -40,27 +59,28 @@ export class GameManager {
   private state!: GameState;
   private roleHandlers = new Map<string, ReturnType<typeof createRole>>();
   private collectedVotes: VoteRecord[] = [];
+  private activeAction: ActiveAction | null = null;
 
   // 鍥炶皟锛岀敱 socket handler 璁剧疆
   public onPhaseChange?: (state: GameState) => void;
-  public onNightActionPrompt?: (userId: string, roleName: string, targets: string[], witchInfo?: { victim: string | null; hasAntidote: boolean; hasPoison: boolean; canSelfSave: boolean }) => void;
+  public onNightActionPrompt?: (userId: string, roleName: string, targets: string[], witchInfo?: { victim: string | null; hasAntidote: boolean; hasPoison: boolean; canSelfSave: boolean }, actionId?: string) => void;
   public onDayAnnouncement?: (deaths: DeathRecord[], peacefulNight: boolean, round: number, type: 'night' | 'exile') => void;
-  public onMarkingTurn?: (userId: string, evaluationMarkCount: number, identities: string[]) => void;
+  public onMarkingTurn?: (userId: string, evaluationMarkCount: number, identities: string[], actionId?: string) => void;
   public onMarksRevealed?: (marks: PlayerMarks) => void;
-  public onVotingStart?: (candidates: string[]) => void;
+  public onVotingStart?: (candidates: string[], actionId?: string) => void;
   public onVotingResult?: (votes: VoteRecord[], exiled: string | null, tie: boolean) => void;
   public onGameOver?: (winner: 'good' | 'evil', reason: GameOverReason) => void;
-  public onWolfVoteUpdate?: (wolfUserIds: string[], votes: Record<string, string>) => void;
+  public onWolfVoteUpdate?: (wolfUserIds: string[], votes: Record<string, string>, actionId?: string) => void;
   public onInvestigateResult?: (userId: string, target: string, faction: 'good' | 'evil') => void;
   // 瀹堝浜烘煡楠岀粨鏋?
   public onAutopsyResult?: (userId: string, target: string, faction: 'good' | 'evil') => void;
   // 瑙﹀彂閾惧洖璋?
-  public onHunterTrigger?: (userId: string, canShoot: boolean, targets: string[]) => void;
+  public onHunterTrigger?: (userId: string, canShoot: boolean, targets: string[], actionId?: string) => void;
   public onHunterResult?: (shooter: string, target: string | null, targetDeath: boolean) => void;
-  public onWolfKingTrigger?: (userId: string, targets: string[]) => void;
+  public onWolfKingTrigger?: (userId: string, targets: string[], actionId?: string) => void;
   public onWolfKingResult?: (dragger: string, target: string | null) => void;
   public onFoolImmunity?: (userId: string) => void;
-  public onKnightTurn?: (userId: string, canDuel: boolean, targets: string[]) => void;
+  public onKnightTurn?: (userId: string, canDuel: boolean, targets: string[], actionId?: string) => void;
   public onDuelResult?: (knightId: string, targetId: string, loserId: string) => void;
 
   constructor(room: Room) {
@@ -74,6 +94,157 @@ export class GameManager {
   /** 获取当前已收集的投票（用于重连恢复） */
   getCollectedVotes(): VoteRecord[] {
     return [...this.collectedVotes];
+  }
+
+  private beginAction(
+    actionType: ActionType,
+    actorUserIds: string[],
+    allowedTargets: string[] = [],
+  ): string {
+    const action: ActiveAction = {
+      actionId: randomUUID(),
+      round: this.state.round,
+      phase: this.state.phase,
+      actionType,
+      actorUserIds: [...actorUserIds],
+      submittedUserIds: new Set<string>(),
+      allowedTargets: [...allowedTargets],
+      timeoutHandles: new Map<string, ReturnType<typeof setTimeout>>(),
+    };
+    this.activeAction = action;
+    for (const actorUserId of action.actorUserIds) {
+      const player = this.room.players.find(roomPlayer => roomPlayer.userId === actorUserId);
+      if (player && !player.connected) {
+        this.handlePlayerConnectionChange(actorUserId, false);
+      }
+    }
+    return action.actionId;
+  }
+
+  private invalidateActiveAction(): void {
+    if (this.activeAction) {
+      for (const timeoutHandle of this.activeAction.timeoutHandles.values()) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+    this.activeAction = null;
+  }
+
+  /**
+   * 处理真人玩家连接状态变化。在线玩家不启用服务端超时；断线玩家等待 60 秒后自动完成当前行动。
+   */
+  handlePlayerConnectionChange(userId: string, connected: boolean): void {
+    const active = this.activeAction;
+    if (!active || !active.actorUserIds.includes(userId)) return;
+
+    const existingTimeout = active.timeoutHandles.get(userId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      active.timeoutHandles.delete(userId);
+    }
+
+    if (connected || active.submittedUserIds.has(userId)) return;
+
+    const actionId = active.actionId;
+    const timeoutHandle = setTimeout(() => {
+      const current = this.activeAction;
+      const player = this.room.players.find(roomPlayer => roomPlayer.userId === userId);
+      if (
+        current?.actionId !== actionId ||
+        !player ||
+        player.connected ||
+        current.submittedUserIds.has(userId)
+      ) {
+        return;
+      }
+      current.timeoutHandles.delete(userId);
+      this.submitDisconnectedFallback(userId, actionId);
+    }, 60000);
+    active.timeoutHandles.set(userId, timeoutHandle);
+  }
+
+  private submitDisconnectedFallback(userId: string, actionId: string): void {
+    const active = this.activeAction;
+    if (!active || active.actionId !== actionId) return;
+
+    switch (active.actionType) {
+      case 'night': {
+        const player = this.state.players.find(candidate => candidate.userId === userId);
+        if (!player) return;
+        if (player.role === ROLES.WITCH) {
+          this.handleNightAction(userId, { action: 'usePotion', potion: 'none' }, actionId);
+          return;
+        }
+        const target = active.allowedTargets[0];
+        const action = player.role === ROLES.WEREWOLF || player.role === ROLES.WOLF_KING
+          ? 'attack'
+          : player.role === ROLES.SEER
+            ? 'investigate'
+            : player.role === ROLES.GUARD
+              ? 'guard'
+              : 'autopsy';
+        this.handleNightAction(userId, { action, target }, actionId);
+        return;
+      }
+      case 'marking': {
+        const identities = getAvailableIdentities(this.state);
+        const identity = identities.includes('好人') ? '好人' : identities[0];
+        const targets = this.state.players
+          .filter(player => player.alive && player.userId !== userId)
+          .slice(0, getEvaluationMarkCount(this.state.players.filter(player => player.alive).length));
+        const reason = COMMON_REASONS.INTUITION as MarkReason;
+        if (!identity || targets.length === 0) return;
+        this.handleSubmitMarks(userId, {
+          player: userId,
+          round: this.state.round,
+          identityMark: { identity, reason },
+          evaluationMarks: targets.map(target => ({ target: target.userId, identity: '好人', reason })),
+        }, actionId);
+        return;
+      }
+      case 'voting': {
+        const target = active.allowedTargets.find(candidate => candidate !== userId);
+        if (target) this.handleVote(userId, target, actionId);
+        return;
+      }
+      case 'hunter_shoot':
+        this.handleHunterAction(userId, 'skip', undefined, actionId);
+        return;
+      case 'wolf_king_drag':
+        this.handleWolfKingAction(userId, 'skip', undefined, actionId);
+        return;
+      case 'knight_duel':
+        this.handleKnightAction(userId, 'skip', undefined, actionId);
+        return;
+    }
+  }
+
+  private validateAction(
+    actionId: string | undefined,
+    userId: string,
+    actionType: ActionType,
+    target?: string,
+  ): ActiveAction | null {
+    const active = this.activeAction;
+    if (!active || active.actionType !== actionType) return null;
+    if (actionId && actionId !== active.actionId) return null;
+    if (active.round !== this.state.round || active.phase !== this.state.phase) return null;
+    if (!active.actorUserIds.includes(userId) || active.submittedUserIds.has(userId)) return null;
+    if (target && active.allowedTargets.length > 0 && !active.allowedTargets.includes(target)) return null;
+    return active;
+  }
+
+  private markActionSubmitted(action: ActiveAction, userId: string): void {
+    action.submittedUserIds.add(userId);
+    const timeoutHandle = action.timeoutHandles.get(userId);
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+      action.timeoutHandles.delete(userId);
+    }
+  }
+
+  private isActionGroupComplete(action: ActiveAction): boolean {
+    return action.actorUserIds.every(userId => action.submittedUserIds.has(userId));
   }
 
   /**
@@ -99,14 +270,14 @@ export class GameManager {
           const handler = this.roleHandlers.get(userId);
           if (handler) {
             const targets = handler.getAvailableTargets(this.state, player);
-            this.onNightActionPrompt?.(userId, player.role, targets);
+            this.onNightActionPrompt?.(userId, player.role, targets, undefined, this.activeAction?.actionId);
             // 同时发送已有的狼人投票进度
             if (this.state.nightActions.wolves) {
               const aliveWolves = this.state.players.filter(
                 p => p.alive && (p.role === ROLES.WEREWOLF || p.role === ROLES.WOLF_KING)
               );
               const wolfIds = aliveWolves.map(w => w.userId);
-              this.onWolfVoteUpdate?.(wolfIds, { ...this.state.nightActions.wolves.votes });
+              this.onWolfVoteUpdate?.(wolfIds, { ...this.state.nightActions.wolves.votes }, this.activeAction?.actionId);
             }
           }
         } else if (this.state.nightCurrentRole === player.role && player.alive) {
@@ -129,9 +300,9 @@ export class GameManager {
               hasAntidote: !witchState.antidoteUsed,
               hasPoison: !witchState.poisonUsed,
               canSelfSave: this.state.round === 1,
-            });
+            }, this.activeAction?.actionId);
           } else {
-            this.onNightActionPrompt?.(userId, player.role, targets);
+            this.onNightActionPrompt?.(userId, player.role, targets, undefined, this.activeAction?.actionId);
           }
         }
         break;
@@ -146,7 +317,7 @@ export class GameManager {
           const identities = getAvailableIdentities(this.state);
 
           // 对重连玩家单独发送 markingTurn（通过回调，handlers.ts 中会处理）
-          this.onMarkingTurn?.(currentUserId, evalCount, identities);
+          this.onMarkingTurn?.(currentUserId, evalCount, identities, this.activeAction?.actionId);
         }
         break;
       }
@@ -156,7 +327,7 @@ export class GameManager {
         const candidates = this.state.players
           .filter(p => p.alive)
           .map(p => p.userId);
-        this.onVotingStart?.(candidates);
+        this.onVotingStart?.(candidates, this.activeAction?.actionId);
         break;
       }
 
@@ -174,14 +345,14 @@ export class GameManager {
                     .filter(p => p.alive && p.userId !== trigger.userId)
                     .map(p => p.userId);
                   const hunterState = triggerPlayer.roleState as HunterState;
-                  this.onHunterTrigger?.(trigger.userId, hunterState.canShoot, targets);
+                  this.onHunterTrigger?.(trigger.userId, hunterState.canShoot, targets, this.activeAction?.actionId);
                   break;
                 }
                 case 'wolf_king_drag': {
                   const targets = this.state.players
                     .filter(p => p.alive && p.userId !== trigger.userId)
                     .map(p => p.userId);
-                  this.onWolfKingTrigger?.(trigger.userId, targets);
+                  this.onWolfKingTrigger?.(trigger.userId, targets, this.activeAction?.actionId);
                   break;
                 }
               }
@@ -202,7 +373,7 @@ export class GameManager {
             const targets = this.state.players
               .filter(p => p.alive && p.userId !== knight.userId)
               .map(p => p.userId);
-            this.onKnightTurn?.(knight.userId, true, targets);
+            this.onKnightTurn?.(knight.userId, true, targets, this.activeAction?.actionId);
           }
         }
         break;
@@ -277,6 +448,7 @@ export class GameManager {
   startNight(): void {
     this.state.phase = PHASES.NIGHT;
     this.state.nightActions = this.createEmptyNightActions();
+    this.invalidateActiveAction();
     this.onPhaseChange?.(this.state);
 
     // 浠庣涓€涓湁澶滄櫄琛屽姩鐨勮鑹插紑濮?
@@ -301,11 +473,20 @@ export class GameManager {
         );
         if (wolves.length > 0) {
           this.state.nightCurrentRole = ROLES.WEREWOLF;
+          const wolfTargets = wolves.flatMap(wolf => {
+            const handler = this.roleHandlers.get(wolf.userId);
+            return handler ? handler.getAvailableTargets(this.state, wolf) : [];
+          });
+          const actionId = this.beginAction(
+            'night',
+            wolves.map(wolf => wolf.userId),
+            [...new Set(wolfTargets)],
+          );
           for (const wolf of wolves) {
             const handler = this.roleHandlers.get(wolf.userId);
             if (handler) {
               const targets = handler.getAvailableTargets(this.state, wolf);
-              this.onNightActionPrompt?.(wolf.userId, wolf.role, targets);
+              this.onNightActionPrompt?.(wolf.userId, wolf.role, targets, undefined, actionId);
             }
           }
           return;
@@ -320,12 +501,13 @@ export class GameManager {
         const victim = this.state.nightActions.wolves?.target || null;
         this.state.nightCurrentRole = ROLES.WITCH;
         const targets = this.roleHandlers.get(witch.userId)?.getAvailableTargets(this.state, witch) || [];
+        const actionId = this.beginAction('night', [witch.userId], targets);
         this.onNightActionPrompt?.(witch.userId, ROLES.WITCH, targets, {
           victim,
           hasAntidote: !witchState.antidoteUsed,
           hasPoison: !witchState.poisonUsed,
           canSelfSave: this.state.round === 1,
-        });
+        }, actionId);
         return;
       }
 
@@ -341,7 +523,8 @@ export class GameManager {
             this.state.nightActions.gravedigger = { target: null };
             continue;
           }
-          this.onNightActionPrompt?.(gd.userId, ROLES.GRAVEDIGGER, targets);
+          const actionId = this.beginAction('night', [gd.userId], targets);
+          this.onNightActionPrompt?.(gd.userId, ROLES.GRAVEDIGGER, targets, undefined, actionId);
           return;
         }
         continue;
@@ -353,7 +536,8 @@ export class GameManager {
       if (handler && handler.hasNightAction) {
         this.state.nightCurrentRole = roleName;
         const targets = handler.getAvailableTargets(this.state, player);
-        this.onNightActionPrompt?.(player.userId, roleName, targets);
+        const actionId = this.beginAction('night', [player.userId], targets);
+        this.onNightActionPrompt?.(player.userId, roleName, targets, undefined, actionId);
         return;
       }
     }
@@ -362,9 +546,32 @@ export class GameManager {
     this.resolveNightPhase();
   }
 
-  handleNightAction(userId: string, action: { action: string; target?: string; potion?: string }): boolean {
+  handleNightAction(
+    userId: string,
+    action: { action: string; target?: string; potion?: string },
+    actionId?: string,
+  ): boolean {
     const player = this.state.players.find(p => p.userId === userId);
     if (!player || !player.alive) return false;
+
+    const currentRole = this.state.nightCurrentRole;
+    const isWolf = player.role === ROLES.WEREWOLF || player.role === ROLES.WOLF_KING;
+    if (!currentRole || (currentRole === ROLES.WEREWOLF ? !isWolf : currentRole !== player.role)) return false;
+
+    const expectedAction = isWolf
+      ? 'attack'
+      : player.role === ROLES.WITCH
+        ? 'usePotion'
+        : player.role === ROLES.SEER
+          ? 'investigate'
+          : player.role === ROLES.GUARD
+            ? 'guard'
+            : 'autopsy';
+    if (action.action !== expectedAction) return false;
+    if (player.role === ROLES.WITCH && !['antidote', 'poison', 'none'].includes(action.potion || 'none')) return false;
+
+    const active = this.validateAction(actionId, userId, 'night', action.target);
+    if (!active) return false;
 
     const handler = this.roleHandlers.get(userId);
     if (!handler) return false;
@@ -375,14 +582,15 @@ export class GameManager {
     });
 
     if (!success) return false;
+    this.markActionSubmitted(active, userId);
 
     // 鐙间汉鎶曠エ鍚庨€氱煡闃熷弸
-    if ((player.role === ROLES.WEREWOLF || player.role === ROLES.WOLF_KING) && this.state.nightActions.wolves) {
+    if (isWolf && this.state.nightActions.wolves) {
       const aliveWolves = this.state.players.filter(
         p => p.alive && (p.role === ROLES.WEREWOLF || p.role === ROLES.WOLF_KING)
       );
       const wolfIds = aliveWolves.map(w => w.userId);
-      this.onWolfVoteUpdate?.(wolfIds, { ...this.state.nightActions.wolves.votes });
+      this.onWolfVoteUpdate?.(wolfIds, { ...this.state.nightActions.wolves.votes }, active.actionId);
     }
 
     // 棰勮█瀹舵煡楠岀粨鏋滅珛鍗宠繑鍥?
@@ -411,6 +619,7 @@ export class GameManager {
         nextIndex = NIGHT_ACTION_ORDER.indexOf(ROLES.WITCH);
         if (nextIndex === -1) nextIndex = currentIndex + 1;
       }
+      this.invalidateActiveAction();
       this.processNextNightRole(nextIndex);
     }
 
@@ -422,8 +631,7 @@ export class GameManager {
     if (!role) return true;
 
     if (role === ROLES.WEREWOLF || role === ROLES.WOLF_KING) {
-      return this.state.nightActions.wolves?.target !== null &&
-             this.state.nightActions.wolves?.target !== undefined;
+      return this.activeAction?.actionType === 'night' && this.isActionGroupComplete(this.activeAction);
     }
     if (role === ROLES.WITCH) {
       return this.state.nightActions.witch !== null;
@@ -440,7 +648,17 @@ export class GameManager {
     return true;
   }
 
+  private finishAfterDeathChain(nextStep: () => void): void {
+    const winResult = checkWinCondition(this.state, this.winCondition);
+    if (winResult) {
+      this.endGame(winResult.winner, winResult.reason);
+      return;
+    }
+    nextStep();
+  }
+
   private resolveNightPhase(): void {
+    this.invalidateActiveAction();
     const deaths = resolveNight(this.state);
 
     // 淇濆瓨鏈疆澶滄櫄琛屽姩鍒板巻鍙?
@@ -453,17 +671,9 @@ export class GameManager {
     this.onPhaseChange?.(this.state);
     this.onDayAnnouncement?.(deaths, deaths.length === 0, this.state.round, 'night');
 
-    // 妫€鏌ヨ儨璐?
-    const winResult = checkWinCondition(this.state, this.winCondition);
-    if (winResult) {
-      this.endGame(winResult.winner, winResult.reason);
-      return;
-    }
-
-    // 澶勭悊澶滄櫄姝讳骸鐨勮Е鍙戯紙鐚庝汉琚垁姝诲彲寮€鏋級
+    // 先处理死亡触发，再统一检查胜负；死亡触发可能造成新的死亡。
     this.processDeathTriggers(deaths, () => {
-      // 瑙﹀彂閾惧鐞嗗畬姣曞悗锛屾鏌ユ槸鍚︽湁楠戝＋鍐虫枟
-      this.checkKnightDuel();
+      this.finishAfterDeathChain(() => this.checkKnightDuel());
     });
   }
 
@@ -488,7 +698,7 @@ export class GameManager {
         triggers.push({
           type: trigger.type as PendingTrigger['type'],
           userId: trigger.userId,
-          timeout: 30,
+          timeout: 60,
         });
       }
     }
@@ -529,7 +739,8 @@ export class GameManager {
           .filter(p => p.alive && p.userId !== trigger.userId)
           .map(p => p.userId);
         const hunterState = player.roleState as HunterState;
-        this.onHunterTrigger?.(trigger.userId, hunterState.canShoot, targets);
+        const actionId = this.beginAction('hunter_shoot', [trigger.userId], targets);
+        this.onHunterTrigger?.(trigger.userId, hunterState.canShoot, targets, actionId);
         // 瀛樺偍 onComplete 浠ヤ究 handleHunterAction 璋冪敤
         this._triggerOnComplete = onComplete;
         break;
@@ -538,7 +749,8 @@ export class GameManager {
         const targets = this.state.players
           .filter(p => p.alive && p.userId !== trigger.userId)
           .map(p => p.userId);
-        this.onWolfKingTrigger?.(trigger.userId, targets);
+        const actionId = this.beginAction('wolf_king_drag', [trigger.userId], targets);
+        this.onWolfKingTrigger?.(trigger.userId, targets, actionId);
         this._triggerOnComplete = onComplete;
         break;
       }
@@ -556,13 +768,19 @@ export class GameManager {
   /**
    * 鐚庝汉寮€鏋搷浣?
    */
-  handleHunterAction(userId: string, action: 'shoot' | 'skip', target?: string): boolean {
+  handleHunterAction(userId: string, action: 'shoot' | 'skip', target?: string, actionId?: string): boolean {
     if (this.state.pendingTriggers.length === 0) return false;
     const trigger = this.state.pendingTriggers[0];
     if (trigger.type !== 'hunter_shoot' || trigger.userId !== userId) return false;
 
+    const active = this.validateAction(actionId, userId, 'hunter_shoot', action === 'shoot' ? target : undefined);
+    if (!active) return false;
+
     const hunter = this.state.players.find(p => p.userId === userId);
     if (!hunter) return false;
+
+    this.markActionSubmitted(active, userId);
+    this.invalidateActiveAction();
 
     // 鏍囪宸茬敤
     const hunterState = hunter.roleState as HunterState;
@@ -592,13 +810,6 @@ export class GameManager {
         // 骞挎挱鐚庝汉寮€鏋鑷寸殑姝讳骸鍏憡
         this.onDayAnnouncement?.([deathRecord], false, this.state.round, 'exile');
 
-        // 妫€鏌ヨ儨璐?
-        const winResult = checkWinCondition(this.state, this.winCondition);
-        if (winResult) {
-          this.endGame(winResult.winner, winResult.reason);
-          return true;
-        }
-
         // 琚寧浜哄皠鏉€鐨勪汉涔熷彲鑳借Е鍙戯紙濡傜寧浜哄皠鏉€浜嗗彟涓€涓寧浜?.. 铏界劧涓嶅お鍙兘锛?
         const newTriggers: PendingTrigger[] = [];
         const victimHandler = this.roleHandlers.get(victim.userId);
@@ -608,7 +819,7 @@ export class GameManager {
             newTriggers.push({
               type: newTrigger.type as PendingTrigger['type'],
               userId: newTrigger.userId,
-              timeout: 30,
+              timeout: 60,
             });
           }
         }
@@ -634,10 +845,15 @@ export class GameManager {
   /**
    * 鐧界嫾鐜嬪甫浜烘搷浣?
    */
-  handleWolfKingAction(userId: string, action: 'drag' | 'skip', target?: string): boolean {
+  handleWolfKingAction(userId: string, action: 'drag' | 'skip', target?: string, actionId?: string): boolean {
     if (this.state.pendingTriggers.length === 0) return false;
     const trigger = this.state.pendingTriggers[0];
     if (trigger.type !== 'wolf_king_drag' || trigger.userId !== userId) return false;
+
+    const active = this.validateAction(actionId, userId, 'wolf_king_drag', action === 'drag' ? target : undefined);
+    if (!active) return false;
+    this.markActionSubmitted(active, userId);
+    this.invalidateActiveAction();
 
     this.state.pendingTriggers.shift();
 
@@ -663,13 +879,6 @@ export class GameManager {
         // 骞挎挱甯︿汉姝讳骸鍏憡
         this.onDayAnnouncement?.([deathRecord], false, this.state.round, 'exile');
 
-        // 妫€鏌ヨ儨璐?
-        const winResult = checkWinCondition(this.state, this.winCondition);
-        if (winResult) {
-          this.endGame(winResult.winner, winResult.reason);
-          return true;
-        }
-
         // 琚甫璧扮殑浜轰篃鍙兘瑙﹀彂寮€鏋紙濡傝甯﹁蛋鐨勬槸鐚庝汉锛?
         const newTriggers: PendingTrigger[] = [];
         const victimHandler = this.roleHandlers.get(victim.userId);
@@ -679,7 +888,7 @@ export class GameManager {
             newTriggers.push({
               type: newTrigger.type as PendingTrigger['type'],
               userId: newTrigger.userId,
-              timeout: 30,
+              timeout: 60,
             });
           }
         }
@@ -722,7 +931,8 @@ export class GameManager {
           .filter(p => p.alive && p.userId !== knight.userId)
           .map(p => p.userId);
 
-        this.onKnightTurn?.(knight.userId, true, targets);
+        const actionId = this.beginAction('knight_duel', [knight.userId], targets);
+        this.onKnightTurn?.(knight.userId, true, targets, actionId);
         return;
       }
     }
@@ -734,7 +944,7 @@ export class GameManager {
   /**
    * 楠戝＋鍐虫枟鎿嶄綔
    */
-  handleKnightAction(userId: string, action: 'duel' | 'skip', target?: string): boolean {
+  handleKnightAction(userId: string, action: 'duel' | 'skip', target?: string, actionId?: string): boolean {
     if (this.state.phase !== PHASES.DAY_KNIGHT) return false;
 
     const knight = this.state.players.find(p => p.userId === userId && p.alive && p.role === ROLES.KNIGHT);
@@ -743,7 +953,15 @@ export class GameManager {
     const knightState = knight.roleState as KnightState;
     if (knightState.duelUsed) return false;
 
-    knightState.duelUsed = true;
+    if (action === 'duel' && !target) return false;
+    const active = this.validateAction(actionId, userId, 'knight_duel', action === 'duel' ? target : undefined);
+    if (!active) return false;
+    this.markActionSubmitted(active, userId);
+    this.invalidateActiveAction();
+
+    if (action === 'duel') {
+      knightState.duelUsed = true;
+    }
 
     if (action === 'duel' && target) {
       const targetPlayer = this.state.players.find(p => p.userId === target && p.alive);
@@ -777,15 +995,11 @@ export class GameManager {
       this.onDayAnnouncement?.([deathRecord], false, this.state.round, 'exile');
 
       // 妫€鏌ヨ儨璐?
-      const winResult = checkWinCondition(this.state, this.winCondition);
-      if (winResult) {
-        this.endGame(winResult.winner, winResult.reason);
-        return true;
-      }
+      // 先处理决斗造成的死亡触发，再统一检查胜负。
 
       // 鍐虫枟瀵艰嚧鐨勬浜′篃鍙兘瑙﹀彂锛堝鍐虫枟杈撶殑涓€鏂规槸鐚庝汉鍙互寮€鏋級
       this.processDeathTriggers([deathRecord], () => {
-        this.startMarkingPhase();
+        this.finishAfterDeathChain(() => this.startMarkingPhase());
       });
     } else {
       // 涓嶅彂鍔ㄥ喅鏂?
@@ -799,6 +1013,7 @@ export class GameManager {
 
   private startMarkingPhase(): void {
     this.state.phase = PHASES.DAY_MARKING;
+    this.invalidateActiveAction();
     // 鎸夊骇浣嶅彿鎺掑垪瀛樻椿鐜╁锛堢櫧鐥村厤鐤悗澶卞幓鎶曠エ鏉冧絾浠嶅彲鏍囪锛?
     const alivePlayers = this.state.players
       .filter(p => p.alive)
@@ -822,20 +1037,47 @@ export class GameManager {
     const alivePlayers = this.state.players.filter(p => p.alive);
     const evalCount = getEvaluationMarkCount(alivePlayers.length);
     const identities = getAvailableIdentities(this.state);
+    const actionId = this.beginAction('marking', [currentUserId]);
 
-    this.onMarkingTurn?.(currentUserId, evalCount, identities);
+    this.onMarkingTurn?.(currentUserId, evalCount, identities, actionId);
   }
 
-  handleSubmitMarks(userId: string, marks: PlayerMarks): boolean {
+  handleSubmitMarks(userId: string, marks: PlayerMarks, actionId?: string): boolean {
     if (this.state.phase !== PHASES.DAY_MARKING) return false;
     if (this.state.markingOrder[this.state.markingCurrent] !== userId) return false;
+    const active = this.validateAction(actionId, userId, 'marking');
+    if (!active) return false;
+
+    const availableIdentities = new Set(getAvailableIdentities(this.state));
+    if (!availableIdentities.has(marks.identityMark.identity)) return false;
+
+    const availableEvaluationIdentities = new Set([...availableIdentities, '狼人']);
+    const availableReasons = new Set([...Object.values(COMMON_REASONS), ...Object.values(SPECIAL_REASONS)]);
+    if (!availableReasons.has(marks.identityMark.reason)) return false;
+
+    const expectedEvaluationCount = getEvaluationMarkCount(
+      this.state.players.filter(player => player.alive).length,
+    );
+    if (marks.evaluationMarks.length !== expectedEvaluationCount) return false;
+
+    const evaluatedTargets = new Set<string>();
+    for (const mark of marks.evaluationMarks) {
+      const target = this.state.players.find(player => player.userId === mark.target);
+      if (!target || !target.alive || target.userId === userId) return false;
+      if (evaluatedTargets.has(mark.target)) return false;
+      if (!availableEvaluationIdentities.has(mark.identity)) return false;
+      if (!availableReasons.has(mark.reason)) return false;
+      evaluatedTargets.add(mark.target);
+    }
 
     marks.round = this.state.round;
     marks.player = userId;
     this.state.history.marks.push(marks);
+    this.markActionSubmitted(active, userId);
     this.onMarksRevealed?.(marks);
 
     this.state.markingCurrent++;
+    this.invalidateActiveAction();
     this.promptNextMarking();
 
     return true;
@@ -845,15 +1087,20 @@ export class GameManager {
 
   private startVotingPhase(): void {
     this.state.phase = PHASES.DAY_VOTING;
+    this.invalidateActiveAction();
     this.collectedVotes = [];
 
     // 鐧界棿鍏嶇柅鍚庡け鍘绘姇绁ㄦ潈锛屼絾浠嶇劧瀛樻椿
     const candidates = this.state.players
       .filter(p => p.alive)
       .map(p => p.userId);
+    const eligibleVoters = this.state.players
+      .filter(p => p.alive && this.hasVotingRight(p))
+      .map(p => p.userId);
+    const actionId = this.beginAction('voting', eligibleVoters, candidates);
 
     this.onPhaseChange?.(this.state);
-    this.onVotingStart?.(candidates);
+    this.onVotingStart?.(candidates, actionId);
   }
 
   /**
@@ -867,18 +1114,20 @@ export class GameManager {
     return true;
   }
 
-  handleVote(userId: string, target: string): boolean {
+  handleVote(userId: string, target: string, actionId?: string): boolean {
     if (this.state.phase !== PHASES.DAY_VOTING) return false;
 
     const voter = this.state.players.find(p => p.userId === userId);
     if (!voter || !voter.alive) return false;
     if (!this.hasVotingRight(voter)) return false;
     if (userId === target) return false; // 涓嶅彲鎶曡嚜宸?
+    if (!this.state.players.some(p => p.alive && p.userId === target)) return false;
 
-    // 涓嶈兘閲嶅鎶曠エ
-    if (this.collectedVotes.some(v => v.voter === userId)) return false;
+    const active = this.validateAction(actionId, userId, 'voting', target);
+    if (!active) return false;
 
     this.collectedVotes.push({ voter: userId, target });
+    this.markActionSubmitted(active, userId);
 
     // 妫€鏌ユ槸鍚︽墍鏈夋湁鎶曠エ鏉冪殑浜洪兘鎶曚簡
     const eligibleVoters = this.state.players.filter(p => p.alive && this.hasVotingRight(p));
@@ -890,6 +1139,7 @@ export class GameManager {
   }
 
   private resolveVotingPhase(): void {
+    this.invalidateActiveAction();
     const result = resolveVoting(this.collectedVotes);
     this.state.history.votes.push([...this.collectedVotes]);
 
@@ -950,16 +1200,9 @@ export class GameManager {
     // 骞挎挱鏀鹃€愬叕鍛婏紙鍚仐鐗╀俊鎭級
     this.onDayAnnouncement?.([deathRecord], false, this.state.round, 'exile');
 
-    // 妫€鏌ヨ儨璐?
-    const winResult = checkWinCondition(this.state, this.winCondition);
-    if (winResult) {
-      this.endGame(winResult.winner, winResult.reason);
-      return;
-    }
-
-    // 澶勭悊鏀鹃€愬悗鐨勮Е鍙戦摼锛堢櫧鐙肩帇甯︿汉銆佺寧浜哄紑鏋瓑锛?
+    // 先处理放逐产生的死亡触发，再统一检查胜负。
     this.processDeathTriggers([deathRecord], () => {
-      this.advanceToNextNight();
+      this.finishAfterDeathChain(() => this.advanceToNextNight());
     });
   }
 
@@ -974,9 +1217,11 @@ export class GameManager {
     this.state.phase = PHASES.GAME_OVER;
     this.state.status = 'finished';
     this.state.winner = winner;
+    clearPersonas(this.state.roomId);
     this.onPhaseChange?.(this.state);
     this.onGameOver?.(winner, reason);
   }
+
 
   // ========== 杈呭姪鏂规硶 ==========
 

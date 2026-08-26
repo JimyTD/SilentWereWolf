@@ -7,10 +7,7 @@ export class Guard extends BaseRole {
   readonly hasNightAction = true;
 
   performNightAction(gameState: GameState, player: GamePlayer, action: { target?: string }): boolean {
-    if (!action.target) {
-      gameState.nightActions.guard = { target: null };
-      return true;
-    }
+    if (!action.target) return false;
 
     const state = player.roleState as GuardState;
     // 不可连续守同一人

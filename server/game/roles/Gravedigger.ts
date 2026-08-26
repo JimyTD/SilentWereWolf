@@ -8,7 +8,9 @@ export class Gravedigger extends BaseRole {
 
   performNightAction(gameState: GameState, _player: GamePlayer, action: { target?: string }): boolean {
     if (!action.target) {
-      // 没有可查验的死者，或选择不操作
+      // 没有可查验的死者时自动跳过；有死者时必须选择一名进行查验
+      const hasDeadPlayers = gameState.players.some(player => !player.alive);
+      if (hasDeadPlayers) return false;
       gameState.nightActions.gravedigger = { target: null };
       return true;
     }

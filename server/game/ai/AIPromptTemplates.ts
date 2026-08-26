@@ -286,17 +286,23 @@ export interface MarkingPromptParams {
   availableIdentities: string[];
   availableTargets: { userId: string; nickname: string; seatNumber: number }[];
   availableReasons: string[];
+  analysisPreference?: string;
 }
 
 export function getMarkingPrompt(params: MarkingPromptParams): string {
-  const { evaluationMarkCount, availableIdentities, availableTargets, availableReasons } = params;
+  const { evaluationMarkCount, availableIdentities, availableTargets, availableReasons, analysisPreference } = params;
   const targetList = availableTargets
     .map(t => `${t.seatNumber}号${t.nickname}(userId:"${t.userId}")`)
     .join('、');
 
-  return `现在是标记发言阶段，轮到你发言。
+  const personalityBlock = analysisPreference
+    ? `\n你的分析偏好：${analysisPreference}\n`
+    : '';
 
+  return `现在是标记发言阶段，轮到你发言。
+${personalityBlock}
 你需要：
+
 1. 声称自己的身份（可以是真实的或伪装的）
 2. 评价 ${evaluationMarkCount} 名其他存活玩家
 
@@ -333,24 +339,14 @@ export function getMarkingPrompt(params: MarkingPromptParams): string {
 身份使用中文，如：预言家、女巫、守卫、平民、好人、神职、狼人`;
 }
 
-// 投票分析偏好：给不同 AI 注入不同的分析角度，减少投票雪崩
-const VOTING_PERSONALITIES = [
-  // 偏重标记内容分析
-  `你的分析偏好：你更擅长从标记发言内容中找矛盾。重点关注：谁的声称前后不一致？谁的评价和事实对不上？有人声称相同的身份吗？`,
-  // 偏重投票行为分析
-  `你的分析偏好：你更擅长分析投票行为模式。重点关注：谁的投票总是和结果一致（可能是跟风狼）？谁从不投某些人（可能在保队友）？有没有可疑的投票同盟？`,
-  // 偏重沉默/低调玩家
-  `你的分析偏好：你倾向于关注低调的玩家。重点关注：谁说的话最少、评价最模糊？低调可能是在伪装。不要只看被多人指控的热门目标，也要考虑被忽略的玩家。`,
-  // 偏重死亡线索分析
-  `你的分析偏好：你更擅长从死亡记录和遗物中推理。重点关注：谁被狼人刀了——说明他可能对狼人有威胁，他之前指控过谁？遗物透露了什么信息？`,
-  // 偏重反多数派思考
-  `你的分析偏好：你倾向于独立思考，不轻易从众。如果很多人都指向同一个目标，你要想：这是因为证据确凿，还是被带节奏了？也许真正的狼人正在利用多数人的判断来甩锅。`,
-];
+// 投票分析偏好已迁移至 AIPersona.ts（整局固定分配，不再每次随机抽取）
+// 保留此常量仅为兼容未传入人格时的兜底
+const DEFAULT_PREFERENCE = `你的分析偏好：综合考虑标记内容、投票行为与死亡线索，独立判断。`;
 
 export function getVotingPrompt(
   candidates: { userId: string; nickname: string; seatNumber: number }[],
   self?: { seatNumber: number; nickname: string },
-  personalityIndex?: number,
+  analysisPreference?: string,
 ): string {
   const targetList = candidates
     .map(t => `${t.seatNumber}号${t.nickname}(userId:"${t.userId}")`)
@@ -360,11 +356,10 @@ export function getVotingPrompt(
     ? `\n注意：你是${self.seatNumber}号${self.nickname}，候选人列表中没有你自己，你只能从以上候选人中选择。`
     : '';
 
-  // 选择个性化分析偏好
-  const idx = personalityIndex !== undefined
-    ? personalityIndex % VOTING_PERSONALITIES.length
-    : Math.floor(Math.random() * VOTING_PERSONALITIES.length);
-  const personality = VOTING_PERSONALITIES[idx];
+  const personality = analysisPreference
+    ? `你的分析偏好：${analysisPreference}`
+    : DEFAULT_PREFERENCE;
+
 
   return `现在是投票阶段，你需要投票放逐一名玩家。
 候选人：${targetList}${selfReminder}

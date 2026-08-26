@@ -6,6 +6,8 @@ import { GameManager } from '../game/GameManager';
 import { v4 as uuidv4 } from 'uuid';
 import { generateAIName } from '../game/ai/AIApiClient';
 import { getDefaultAIName } from '../game/ai/aiNames';
+import { assignPersonas } from '../game/ai/AIPersona';
+
 
 export class RoomManager {
   private rooms = new Map<string, Room>();
@@ -261,7 +263,11 @@ export class RoomManager {
     this.gameManagers.set(room.roomId, gm);
     gm.initializeGame();
 
+    // 为本局所有 AI 玩家分配固定人格（整局不变，与座位号无关）
+    assignPersonas(room.roomId, this.getAIPlayers(room.roomId));
+
     return { success: true, gameManager: gm, room };
+
   }
 
   getGameManager(roomId: string): GameManager | undefined {
