@@ -13,7 +13,7 @@ import {
   fallbackMarking,
   fallbackVote,
 } from '../game/ai/AIPlayerController';
-import { flushLogs } from '../game/ai/AILogger';
+import { flushLogs, logGameEvent } from '../game/ai/AILogger';
 import { testAIConnection } from '../game/ai/AIApiClient';
 
 type IOServer = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -34,6 +34,30 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
       },
     );
   });
+}
+
+/**
+ * 记录真人玩家的行动到对局日志。
+ * AI 行动由 AI 决策管线自行记录；本函数只覆盖从 socket 进来的真人提交，
+ * 保证复盘时真人用药、投票、标记等关键操作可追溯。
+ */
+function logHumanAction(
+  roomId: string,
+  userId: string,
+  nickname: string,
+  action: string,
+  payload: unknown,
+  round: number,
+): void {
+  logGameEvent(roomId, {
+    timestamp: new Date().toISOString(),
+    eventType: 'humanAction',
+    round,
+    actorUserId: userId,
+    detail: { nickname, action, payload },
+  });
+  const brief = JSON.stringify(payload);
+  console.log(`[真人行动] 房间${roomId} R${round} ${nickname} ${action} ${brief.length > 200 ? brief.slice(0, 200) + '…' : brief}`);
 }
 
 export function registerSocketHandlers(
@@ -294,6 +318,7 @@ export function registerSocketHandlers(
       if (!user?.roomId) return;
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
+      logHumanAction(user.roomId, userId, nickname, 'nightAction', data, gm.getState().round);
       gm.handleNightAction(userId, data, data.actionId);
     } catch (err) {
       console.error('[client:nightAction] 错误:', err);
@@ -319,6 +344,7 @@ export function registerSocketHandlers(
         identityMark: data.identityMark,
         evaluationMarks: data.evaluationMarks,
       };
+      logHumanAction(user.roomId, userId, nickname, 'submitMarks', data, marks.round);
       const submitted = gm.handleSubmitMarks(userId, marks, data.actionId);
       callback?.(submitted
         ? { success: true }
@@ -335,6 +361,7 @@ export function registerSocketHandlers(
       if (!user?.roomId) return;
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
+      logHumanAction(user.roomId, userId, nickname, 'vote', data, gm.getState().round);
       gm.handleVote(userId, data.target, data.actionId);
     } catch (err) {
       console.error('[client:vote] 错误:', err);
@@ -349,6 +376,7 @@ export function registerSocketHandlers(
       if (!user?.roomId) return;
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
+      logHumanAction(user.roomId, userId, nickname, 'hunterAction', data, gm.getState().round);
       gm.handleHunterAction(userId, data.action, data.target, data.actionId);
     } catch (err) {
       console.error('[client:hunterAction] 错误:', err);
@@ -361,6 +389,7 @@ export function registerSocketHandlers(
       if (!user?.roomId) return;
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
+      logHumanAction(user.roomId, userId, nickname, 'knightAction', data, gm.getState().round);
       gm.handleKnightAction(userId, data.action, data.target, data.actionId);
     } catch (err) {
       console.error('[client:knightAction] 错误:', err);
@@ -373,6 +402,7 @@ export function registerSocketHandlers(
       if (!user?.roomId) return;
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
+      logHumanAction(user.roomId, userId, nickname, 'wolfKingAction', data, gm.getState().round);
       gm.handleWolfKingAction(userId, data.action, data.target, data.actionId);
     } catch (err) {
       console.error('[client:wolfKingAction] 错误:', err);
@@ -711,6 +741,29 @@ function bindGameCallbacks(
     const state = gm.getState();
     const room = roomManager.getRoom(roomId);
     if (!room) return;
+
+    // 结局快照写入对局日志：胜负原因 + 全员角色揭示 + 完整死亡历史。
+    // 没有这份快照，复盘时真人玩家的角色、用药、毒杀目标与胜负原因都无从查证。
+    logGameEvent(roomId, {
+      timestamp: new Date().toISOString(),
+      eventType: 'gameOver',
+      round: state.round,
+      actorUserId: 'system',
+      detail: {
+        winner,
+        reason,
+        players: state.players.map(p => ({
+          seatNumber: p.seatNumber,
+          nickname: room.players.find(rp => rp.userId === p.userId)?.nickname || '',
+          userId: p.userId,
+          role: p.role,
+          faction: p.faction,
+          alive: p.alive,
+        })),
+        deaths: state.history.deaths,
+      },
+    });
+    console.log(`[游戏结束] 房间${roomId} 第${state.round}轮结束 胜方=${winner} 原因=${reason}`);
 
     io.to(roomId).emit('server:gameOver', {
       winner,
