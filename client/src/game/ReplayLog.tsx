@@ -1,6 +1,7 @@
 import type { GameOverData } from '@shared/types/socket';
 import type { NightActions, DeathRecord, PlayerMarks, VoteRecord, PlayerItem } from '@shared/types/game';
 import { ROLE_LABELS } from '@shared/constants';
+import { getEvaluationColor, getIdentityColor } from './identityColor';
 
 interface Props {
   data: GameOverData;
@@ -313,7 +314,7 @@ function RoundSection({
                     <span className="text-xs text-gray-600">（实际：{pRole(m.player)}）</span>
                   </div>
                   <div className="text-gray-300 text-xs mb-0.5">
-                    声明身份：<span className="text-white">{m.identityMark.identity}</span>
+                    声明身份：<span className={getIdentityColor(m.identityMark.identity)}>{m.identityMark.identity}</span>
                     <span className="text-gray-600 ml-1">（{REASON_LABELS[m.identityMark.reason] || m.identityMark.reason}）</span>
                   </div>
                   {m.evaluationMarks.map((e, j) => (
@@ -321,7 +322,7 @@ function RoundSection({
                       → 认为 <span className="text-gray-300">{pLabel(e.target)}</span>
                       <span className="text-gray-600">（实际：{pRole(e.target)}）</span>
                       {' '}是{' '}
-                      <span className={e.identity === '狼人' ? 'text-red-400' : 'text-blue-400'}>{e.identity}</span>
+                      <span className={getEvaluationColor(e.identity)}>{e.identity}</span>
                       <span className="text-gray-600 ml-1">（{REASON_LABELS[e.reason] || e.reason}）</span>
                     </div>
                   ))}

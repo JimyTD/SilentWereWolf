@@ -2,14 +2,13 @@ import { useState } from 'react';
 import { useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
 import { getUserId } from '../utils/userId';
-import { useRoomStore } from '../stores/roomStore';
 import { ROLE_LABELS } from '@shared/constants';
+import { getPlayerLabel } from './playerLabel';
 
 export default function NightActionPanel() {
   const nightAction = useGameStore(s => s.nightAction);
   const myRole = useGameStore(s => s.myRole);
   const players = useGameStore(s => s.players);
-  const room = useRoomStore(s => s.room);
   const wolfVotes = useGameStore(s => s.wolfVotes);
   const myTeammates = useGameStore(s => s.myTeammates);
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
@@ -33,7 +32,7 @@ export default function NightActionPanel() {
       <div className="bg-night rounded-xl p-4 sm:p-6 text-center">
         <div className="text-green-400 text-base sm:text-lg">操作已提交</div>
         <div className="text-gray-500 text-xs sm:text-sm mt-1">等待其他玩家...</div>
-        {isWolf(myRole) && <WolfVoteStatus wolfVotes={wolfVotes} myTeammates={myTeammates} players={players} room={room} myUserId={myUserId} />}
+        {isWolf(myRole) && <WolfVoteStatus wolfVotes={wolfVotes} myTeammates={myTeammates} players={players} myUserId={myUserId} />}
       </div>
     );
   }
@@ -63,11 +62,7 @@ export default function NightActionPanel() {
     setSubmitted(true);
   };
 
-  const getPlayerName = (userId: string) => {
-    const p = players.find(pl => pl.userId === userId);
-    const rp = room?.players.find(rpl => rpl.userId === userId);
-    return `${p?.seatNumber || '?'}号 ${rp?.nickname || '???'}`;
-  };
+  const getPlayerName = (userId: string) => getPlayerLabel(userId, players);
 
   // 获取某个目标被哪些队友选择了
   const getTeammateVotesForTarget = (targetId: string): string[] => {
@@ -90,7 +85,7 @@ export default function NightActionPanel() {
       </div>
 
       {/* 狼人队友投票状态 */}
-      {isWolf(myRole) && <WolfVoteStatus wolfVotes={wolfVotes} myTeammates={myTeammates} players={players} room={room} myUserId={myUserId} />}
+      {isWolf(myRole) && <WolfVoteStatus wolfVotes={wolfVotes} myTeammates={myTeammates} players={players} myUserId={myUserId} />}
 
       {/* 女巫特殊面板 */}
       {myRole === 'witch' && nightAction.witchInfo && (
@@ -202,18 +197,13 @@ interface WolfVoteStatusProps {
   wolfVotes: Record<string, string>;
   myTeammates: { userId: string; seatNumber: number }[];
   players: { userId: string; seatNumber: number; nickname: string; alive: boolean }[];
-  room: { players: { userId: string; nickname: string }[] } | null;
   myUserId: string;
 }
 
-function WolfVoteStatus({ wolfVotes, myTeammates, players, room, myUserId }: WolfVoteStatusProps) {
+function WolfVoteStatus({ wolfVotes, myTeammates, players, myUserId }: WolfVoteStatusProps) {
   if (myTeammates.length === 0) return null;
 
-  const getPlayerName = (userId: string) => {
-    const p = players.find(pl => pl.userId === userId);
-    const rp = room?.players.find(rpl => rpl.userId === userId);
-    return `${p?.seatNumber || '?'}号·${rp?.nickname || '???'}`;
-  };
+  const getPlayerName = (userId: string) => getPlayerLabel(userId, players);
 
   return (
     <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-3">

@@ -5,6 +5,8 @@ import { useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
 import { getUserId } from '../utils/userId';
 import { COMMON_REASONS, SPECIAL_REASONS } from '@shared/constants';
+import { getPlayerLabel } from './playerLabel';
+import { getIdentityButtonColor } from './identityColor';
 
 const REASON_LABELS: Record<string, string> = {
   [COMMON_REASONS.INTUITION]: '直觉判断',
@@ -48,12 +50,11 @@ export default function MarkingPanel({ room }: Props) {
 
   if (!markingTurn.yourTurn) {
     const currentPlayer = players.find(p => p.userId === markingTurn.currentPlayer);
-    const rp = room.players.find(p => p.userId === markingTurn.currentPlayer);
     return (
       <div className="bg-gray-800 rounded-xl p-4 sm:p-5 text-center">
         <div className="text-indigo-300 text-base sm:text-lg mb-1 sm:mb-2">标记发言中</div>
         <div className="text-gray-400 text-sm">
-          {currentPlayer?.seatNumber}号 {rp?.nickname || '???'} 正在标记...
+          {currentPlayer ? getPlayerLabel(currentPlayer.userId, players) : '未知玩家'} 正在标记...
         </div>
       </div>
     );
@@ -127,9 +128,7 @@ export default function MarkingPanel({ room }: Props) {
   };
 
   const getPlayerName = (userId: string) => {
-    const p = players.find(pl => pl.userId === userId);
-    const rp = room.players.find(rpl => rpl.userId === userId);
-    return `${p?.seatNumber || '?'}号 ${rp?.nickname || '???'}`;
+    return getPlayerLabel(userId, players);
   };
 
   const hasIncompleteEval = evaluations.some(e => !e.target || !e.identity);
@@ -197,7 +196,7 @@ export default function MarkingPanel({ room }: Props) {
                     onClick={() => updateEvaluation(i, 'identity', id)}
                     className={`px-2 py-1 rounded text-xs transition ${
                       ev.identity === id
-                        ? id === '狼人' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
+                        ? `${getIdentityButtonColor(id)} text-white`
                         : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
                     }`}
                   >

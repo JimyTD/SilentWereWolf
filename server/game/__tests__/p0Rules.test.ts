@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ROLES } from '../../../shared/constants';
+import { COMMON_REASONS, ROLES, SPECIAL_REASONS } from '../../../shared/constants';
 import type { GamePlayer, GameState } from '../../../shared/types/game';
+import type { Room } from '../../../shared/types/room';
+import { isMarkReasonAllowedForRole } from '../../../shared/validators';
 import { Guard } from '../roles/Guard';
 import { Gravedigger } from '../roles/Gravedigger';
 import { fallbackNightAction } from '../ai/AIPlayerController';
@@ -44,6 +46,21 @@ function createState(players: GamePlayer[]): GameState {
     pendingTriggers: [],
   };
 }
+
+describe('标记理由权限', () => {
+  it('普通理由对所有职业可用，特殊理由只对对应职业可用', () => {
+    expect(isMarkReasonAllowedForRole(ROLES.VILLAGER, COMMON_REASONS.INTUITION)).toBe(true);
+    expect(isMarkReasonAllowedForRole(ROLES.WEREWOLF, SPECIAL_REASONS.INVESTIGATION)).toBe(false);
+    expect(isMarkReasonAllowedForRole(ROLES.SEER, SPECIAL_REASONS.INVESTIGATION)).toBe(true);
+    expect(isMarkReasonAllowedForRole(ROLES.GRAVEDIGGER, SPECIAL_REASONS.INVESTIGATION)).toBe(true);
+    expect(isMarkReasonAllowedForRole(ROLES.WITCH, SPECIAL_REASONS.POTION_RESULT)).toBe(true);
+    expect(isMarkReasonAllowedForRole(ROLES.SEER, SPECIAL_REASONS.POTION_RESULT)).toBe(false);
+  });
+
+  it('未知理由不可用', () => {
+    expect(isMarkReasonAllowedForRole(ROLES.VILLAGER, 'unknown_reason')).toBe(false);
+  });
+});
 
 describe('P0 角色行动规则', () => {
   it('守卫没有目标时不能空守', () => {

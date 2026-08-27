@@ -11,15 +11,11 @@ import GameOverPanel from './GameOverPanel';
 import TriggerPanel from './TriggerPanel';
 import PhaseHeader from './PhaseHeader';
 import EventToast, { type EventToastData } from '../components/EventToast';
-
+import { getPlayerLabel } from './playerLabel';
+import { getEvaluationColor, getIdentityColor } from './identityColor';
 
 interface Props {
   room: Room;
-}
-
-function playerLabel(userId: string, players: { userId: string; nickname: string; seatNumber: number }[]): string {
-  const p = players.find(x => x.userId === userId);
-  return p ? `${p.seatNumber}号·${p.nickname}` : userId;
 }
 
 export default function GameView({ room }: Props) {
@@ -106,7 +102,7 @@ export default function GameView({ room }: Props) {
             <div className="space-y-0.5">
               {votingResult.votes.map((v, i) => (
                 <div key={i} className="text-xs text-gray-400">
-                  {playerLabel(v.voter, players)} → {playerLabel(v.target, players)}
+                  {getPlayerLabel(v.voter, players)} → {getPlayerLabel(v.target, players)}
                 </div>
               ))}
             </div>
@@ -121,12 +117,12 @@ export default function GameView({ room }: Props) {
         content: (
           <div>
             <div className="text-red-400 font-bold mb-2">
-              {playerLabel(votingResult.exiled, players)} 被放逐
+              {getPlayerLabel(votingResult.exiled, players)} 被放逐
             </div>
             <div className="space-y-0.5">
               {votingResult.votes.map((v, i) => (
                 <div key={i} className="text-xs text-gray-400">
-                  {playerLabel(v.voter, players)} → {playerLabel(v.target, players)}
+                  {getPlayerLabel(v.voter, players)} → {getPlayerLabel(v.target, players)}
                 </div>
               ))}
             </div>
@@ -142,7 +138,7 @@ export default function GameView({ room }: Props) {
     const latest = marks[marks.length - 1];
     const toastId = `mark-${marks.length}`;
 
-    const markerLabel = playerLabel(latest.player, players);
+    const markerLabel = getPlayerLabel(latest.player, players);
     addToast({
       id: toastId,
       title: '标记公布',
@@ -151,14 +147,14 @@ export default function GameView({ room }: Props) {
         <div>
           <div className="text-indigo-300 font-bold mb-1">{markerLabel}</div>
           <div className="text-sm text-gray-300 mb-1">
-            声明身份：<span className="text-white font-medium">{latest.identityMark.identity}</span>
+            声明身份：<span className={`${getIdentityColor(latest.identityMark.identity)} font-medium`}>{latest.identityMark.identity}</span>
           </div>
           {latest.evaluationMarks.length > 0 && (
             <div className="space-y-0.5">
               {latest.evaluationMarks.map((e, i) => (
                 <div key={i} className="text-xs text-gray-400">
-                  认为 {playerLabel(e.target, players)} 是
-                  <span className={e.identity === '好人' ? ' text-green-400' : ' text-red-400'}> {e.identity}</span>
+                  认为 {getPlayerLabel(e.target, players)} 是
+                  <span className={`${getEvaluationColor(e.identity)} ml-1`}>{e.identity}</span>
                 </div>
               ))}
             </div>

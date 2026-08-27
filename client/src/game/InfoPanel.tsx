@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useGameStore } from '../stores/gameStore';
 import type { EvaluationMark } from '@shared/types/game';
+import { getPlayerLabel } from './playerLabel';
+import { getEvaluationColor, getIdentityColor } from './identityColor';
 
 type Tab = 'announcements' | 'marks' | 'votes' | 'investigations';
 
@@ -15,11 +17,6 @@ const REASON_LABELS: Record<string, string> = {
 
 function reasonLabel(reason: string): string {
   return REASON_LABELS[reason] || reason;
-}
-
-function playerLabel(userId: string, players: { userId: string; nickname: string; seatNumber: number }[]): string {
-  const p = players.find(x => x.userId === userId);
-  return p ? `${p.seatNumber}号·${p.nickname}` : userId;
 }
 
 export default function InfoPanel() {
@@ -84,7 +81,7 @@ export default function InfoPanel() {
                       <div key={d.userId}>
                         <div className="flex items-center gap-2 text-sm">
                           <span className="text-red-400 font-medium">
-                            {playerLabel(d.userId, players)} 出局
+                            {getPlayerLabel(d.userId, players)} 出局
                           </span>
                           <span className="text-gray-600 text-xs">
                             {d.cause === 'exiled' ? '(放逐)' : d.cause === 'attacked' ? '(夜杀)' : d.cause === 'poisoned' ? '(毒杀)' : d.cause === 'shot' ? '(猎人射杀)' : d.cause === 'wolfKingDrag' ? '(白狼王带走)' : d.cause === 'duel' ? '(决斗)' : d.cause === 'guardWitchClash' ? '(同守同救)' : `(${d.cause})`}
@@ -119,13 +116,13 @@ export default function InfoPanel() {
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-xs bg-gray-600 text-gray-300 px-1.5 py-0.5 rounded">R{m.round}</span>
                   <span className="text-indigo-300 font-medium text-sm">
-                    {playerLabel(m.player, players)}
+                    {getPlayerLabel(m.player, players)}
                   </span>
                 </div>
                 {/* 身份声明 */}
                 <div className="text-sm text-gray-300 mb-2 ml-1">
                   声明身份：
-                  <span className="text-white font-medium">{m.identityMark.identity}</span>
+                  <span className={`${getIdentityColor(m.identityMark.identity)} font-medium`}>{m.identityMark.identity}</span>
                 </div>
                 {/* 评价列表 */}
                 <div className="space-y-1 ml-1">
@@ -133,9 +130,9 @@ export default function InfoPanel() {
                     <div key={j} className="text-sm flex items-center gap-1.5">
                       <span className="text-gray-500">→</span>
                       <span className="text-gray-500">认为</span>
-                      <span className="text-gray-300">{playerLabel(e.target, players)}</span>
+                      <span className="text-gray-300">{getPlayerLabel(e.target, players)}</span>
                       <span className="text-gray-500">是</span>
-                      <span className={e.identity === '狼人' ? 'text-red-400 font-medium' : 'text-blue-400 font-medium'}>
+                      <span className={`${getEvaluationColor(e.identity)} font-medium`}>
                         {e.identity}
                       </span>
                       <span className="text-gray-600 text-xs">（{reasonLabel(e.reason)}）</span>
@@ -158,16 +155,16 @@ export default function InfoPanel() {
                     <span className="text-yellow-400 text-sm font-medium">平票，无人出局</span>
                   ) : v.exiled ? (
                     <span className="text-red-400 text-sm font-medium">
-                      {playerLabel(v.exiled, players)} 被放逐
+                      {getPlayerLabel(v.exiled, players)} 被放逐
                     </span>
                   ) : null}
                 </div>
                 <div className="space-y-1 ml-1">
                   {v.votes.map((vote, j) => (
                     <div key={j} className="text-sm flex items-center gap-1.5">
-                      <span className="text-gray-400">{playerLabel(vote.voter, players)}</span>
+                      <span className="text-gray-400">{getPlayerLabel(vote.voter, players)}</span>
                       <span className="text-gray-600">→</span>
-                      <span className="text-red-300">{playerLabel(vote.target, players)}</span>
+                      <span className="text-red-300">{getPlayerLabel(vote.target, players)}</span>
                     </div>
                   ))}
                 </div>

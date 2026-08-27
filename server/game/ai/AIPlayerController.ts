@@ -182,7 +182,7 @@ export async function decideNightAction(
   const ctx = buildAIContext(state, room, aiPlayer);
   const contextText = contextToText(ctx);
 
-  const systemPrompt = getSystemPrompt(ctx.seatNumber, ctx.role, ctx.faction, room.settings.winCondition);
+  const systemPrompt = getSystemPrompt(ctx.self.seatNumber, ctx.self.role, ctx.self.faction, room.settings.winCondition);
 
   // 构建可选目标的详细信息
   const targetDetails = availableTargets.map(userId => {
@@ -255,7 +255,7 @@ export async function decideNightAction(
     );
     if (corrections.length > 0) {
       console.warn(
-        `[AIGuard] ${ctx.seatNumber}号${ctx.nickname} 夜间行动被纠正：` +
+        `[AIGuard] ${ctx.self.seatNumber}号${ctx.self.nickname} 夜间行动被纠正：` +
         corrections.map(c => `${c.from}→${c.to}(${c.reason})`).join('; '),
       );
       built.target = target;
@@ -266,7 +266,7 @@ export async function decideNightAction(
 
   // Fallback
   fallback = true;
-  console.warn(`[AIController] ${ctx.nickname} 夜晚行动 fallback`);
+  console.warn(`[AIController] ${ctx.self.nickname} 夜晚行动 fallback`);
   return fallbackNightAction(aiPlayer.role, availableTargets, witchInfo, state);
 }
 
@@ -365,7 +365,7 @@ export async function decideMarking(
 ): Promise<MarkingResult> {
   const ctx = buildAIContext(state, room, aiPlayer);
   const contextText = contextToText(ctx);
-  const systemPrompt = getSystemPrompt(ctx.seatNumber, ctx.role, ctx.faction, room.settings.winCondition);
+  const systemPrompt = getSystemPrompt(ctx.self.seatNumber, ctx.self.role, ctx.self.faction, room.settings.winCondition);
 
   // 可评价的目标（排除自己）
   const targets = state.players
@@ -467,7 +467,7 @@ export async function decideMarking(
     );
     if (corrections.length > 0) {
       console.warn(
-        `[AIGuard] ${ctx.seatNumber}号${ctx.nickname} 标记被纠正：` +
+        `[AIGuard] ${ctx.self.seatNumber}号${ctx.self.nickname} 标记被纠正：` +
         corrections.map(c => `${c.field} ${c.from}→${c.to}(${c.reason})`).join('; '),
       );
     }
@@ -721,7 +721,7 @@ export async function decideVote(
 ): Promise<string> {
   const ctx = buildAIContext(state, room, aiPlayer);
   const contextText = contextToText(ctx);
-  const systemPrompt = getSystemPrompt(ctx.seatNumber, ctx.role, ctx.faction, room.settings.winCondition);
+  const systemPrompt = getSystemPrompt(ctx.self.seatNumber, ctx.self.role, ctx.self.faction, room.settings.winCondition);
 
   // 不能投自己
   const validCandidates = candidates.filter(c => c !== aiPlayer.userId);
@@ -733,7 +733,7 @@ export async function decideVote(
 
   const persona = getPersona(state.roomId, aiPlayer.userId);
   const actionPrompt = getVotingPrompt(targetDetails, {
-    seatNumber: ctx.seatNumber,
+    seatNumber: ctx.self.seatNumber,
   }, persona.analysisPreference);
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
@@ -773,7 +773,7 @@ export async function decideVote(
     const { target, corrections } = guardVote(state, aiPlayer, parsed.target, validCandidates);
     if (corrections.length > 0) {
       console.warn(
-        `[AIGuard] ${ctx.seatNumber}号${ctx.nickname} 投票被纠正：` +
+        `[AIGuard] ${ctx.self.seatNumber}号${ctx.self.nickname} 投票被纠正：` +
         corrections.map(c => `${c.from}→${c.to}(${c.reason})`).join('; '),
       );
     }
@@ -848,7 +848,7 @@ export async function decideTriggerAction(
 ): Promise<TriggerActionResult> {
   const ctx = buildAIContext(state, room, aiPlayer);
   const contextText = contextToText(ctx);
-  const systemPrompt = getSystemPrompt(ctx.seatNumber, ctx.role, ctx.faction, room.settings.winCondition);
+  const systemPrompt = getSystemPrompt(ctx.self.seatNumber, ctx.self.role, ctx.self.faction, room.settings.winCondition);
 
   const targetDetails = availableTargets.map(userId => {
     const p = state.players.find(pl => pl.userId === userId);
@@ -905,7 +905,7 @@ export async function decideTriggerAction(
     );
     if (corrections.length > 0) {
       console.warn(
-        `[AIGuard] ${ctx.seatNumber}号${ctx.nickname} ${triggerType} 被纠正：` +
+        `[AIGuard] ${ctx.self.seatNumber}号${ctx.self.nickname} ${triggerType} 被纠正：` +
         corrections.map(c => `${c.from}→${c.to}(${c.reason})`).join('; '),
       );
     }

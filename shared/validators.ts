@@ -1,5 +1,5 @@
-import { ROLES, ROLE_FACTION, FACTIONS, MAX_PLAYERS, MIN_PLAYERS, PRESETS } from './constants';
-import type { GameSettings } from './types/game';
+import { ROLES, ROLE_FACTION, FACTIONS, MAX_PLAYERS, MIN_PLAYERS, PRESETS, COMMON_REASONS, SPECIAL_REASONS } from './constants';
+import type { GameSettings, MarkReason } from './types/game';
 
 /**
  * 校验游戏配置合法性
@@ -66,6 +66,23 @@ export function getRolesFromSettings(settings: GameSettings): string[] {
     }
   }
   return roles;
+}
+
+/**
+ * 校验标记理由是否与玩家真实职业匹配。
+ * 普通理由所有职业可用，特殊理由只能由对应职业提交。
+ */
+export function isMarkReasonAllowedForRole(role: string, reason: MarkReason | string): boolean {
+  if (Object.values(COMMON_REASONS).includes(reason as typeof COMMON_REASONS[keyof typeof COMMON_REASONS])) {
+    return true;
+  }
+  if (reason === SPECIAL_REASONS.INVESTIGATION) {
+    return role === ROLES.SEER || role === ROLES.GRAVEDIGGER;
+  }
+  if (reason === SPECIAL_REASONS.POTION_RESULT) {
+    return role === ROLES.WITCH;
+  }
+  return false;
 }
 
 /**

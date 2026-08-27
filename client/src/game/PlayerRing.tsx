@@ -73,7 +73,6 @@ export default function PlayerRing({ room }: Props) {
           const xPct = (x / containerSize) * 100;
           const yPct = (y / containerSize) * 100;
 
-          const roomPlayer = room.players.find(rp => rp.userId === p.userId);
           const isMe = p.userId === myUserId;
           const isTeammate = teammateIds.has(p.userId);
           const isSpeaking = p.userId === currentSpeaker;
@@ -116,7 +115,7 @@ export default function PlayerRing({ room }: Props) {
                 <span className={`text-[11px] sm:text-xs font-medium truncate max-w-[42px] sm:max-w-[52px] ${
                   p.alive ? 'text-white' : 'text-gray-500 line-through'
                 }`}>
-                  {roomPlayer?.nickname || '???'}
+                  {p.seatNumber}号位
                 </span>
                 {!p.alive && (
                   <span className="text-[8px] sm:text-[9px] text-gray-500">出局</span>

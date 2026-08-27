@@ -3,6 +3,7 @@ import type { Room } from '@shared/types/room';
 import { useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
 import { getUserId } from '../utils/userId';
+import { getPlayerLabel } from './playerLabel';
 
 interface Props {
   room: Room;
@@ -122,9 +123,7 @@ export default function VotingPanel({ room }: Props) {
 function getPlayerName(
   userId: string,
   players: { userId: string; seatNumber: number }[],
-  room: Room
+  _room: Room
 ): string {
-  const p = players.find(pl => pl.userId === userId);
-  const rp = room.players.find(rpl => rpl.userId === userId);
-  return `${p?.seatNumber || '?'}号 ${rp?.nickname || '???'}`;
+  return getPlayerLabel(userId, players);
 }

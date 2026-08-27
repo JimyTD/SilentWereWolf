@@ -3,6 +3,7 @@ import type { Room } from '@shared/types/room';
 import { useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
 import { getUserId } from '../utils/userId';
+import { getPlayerLabel } from './playerLabel';
 
 interface Props {
   room: Room;
@@ -17,11 +18,7 @@ export default function TriggerPanel({ room }: Props) {
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
-  const getPlayerName = (userId: string) => {
-    const p = players.find(pl => pl.userId === userId);
-    const rp = room.players.find(rpl => rpl.userId === userId);
-    return `${p?.seatNumber || '?'}号 ${rp?.nickname || '???'}`;
-  };
+  const getPlayerName = (userId: string) => getPlayerLabel(userId, players);
 
   // 白痴免疫提示（所有人可见）
   if (triggerState.type === 'fool_immunity') {
