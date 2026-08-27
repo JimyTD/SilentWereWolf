@@ -98,7 +98,7 @@ export async function generateAIName(existingNames: string[]): Promise<string | 
   try {
     const result = await callLLM({
       systemPrompt: '你是一个中文名字生成器。只返回一个2-4个字的中文名字，不要解释，不要标点。',
-      userPrompt: `请生成一个自然的中文名字（像真人玩家的昵称），不要与以下名字重复：${existingNames.join('、')}。只返回名字本身。`,
+      userPrompt: '请生成一个自然的中文名字（像真人玩家的昵称）。只返回名字本身。',
       maxTokens: 20,
       temperature: 0.9,
     });

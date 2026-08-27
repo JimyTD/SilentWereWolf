@@ -133,6 +133,37 @@ function isValidTarget(target: unknown, validTargets: string[]): target is strin
   return typeof target === 'string' && validTargets.includes(target);
 }
 
+type TargetDetail = { userId: string; nickname: string; seatNumber: number };
+
+function targetUserIdFromSeat(target: unknown, targets: TargetDetail[]): string | undefined {
+  const seatNumber = typeof target === 'number'
+    ? target
+    : typeof target === 'string' && /^\\d+$/.test(target)
+      ? Number(target)
+      : NaN;
+  if (!Number.isInteger(seatNumber)) return undefined;
+  return targets.find(t => t.seatNumber === seatNumber)?.userId;
+}
+
+function normalizeTarget(parsed: Record<string, unknown> | null, targets: TargetDetail[]): Record<string, unknown> | null {
+  if (!parsed) return null;
+  if (parsed.target === null) return parsed;
+  return { ...parsed, target: targetUserIdFromSeat(parsed.target, targets) };
+}
+
+function normalizeEvaluationTargets(
+  parsed: Record<string, unknown> | null,
+  targets: TargetDetail[],
+): Record<string, unknown> | null {
+  if (!parsed || !Array.isArray(parsed.evaluations)) return parsed;
+  const evaluations = parsed.evaluations.map(raw => {
+    if (!raw || typeof raw !== 'object') return raw;
+    const evaluation = raw as Record<string, unknown>;
+    return { ...evaluation, target: targetUserIdFromSeat(evaluation.target, targets) };
+  });
+  return { ...parsed, evaluations };
+}
+
 // ========== 夜晚行动决策 ==========
 
 export interface NightActionResult {
@@ -151,7 +182,7 @@ export async function decideNightAction(
   const ctx = buildAIContext(state, room, aiPlayer);
   const contextText = contextToText(ctx);
 
-  const systemPrompt = getSystemPrompt(ctx.nickname, ctx.seatNumber, ctx.role, ctx.faction);
+  const systemPrompt = getSystemPrompt(ctx.seatNumber, ctx.role, ctx.faction, room.settings.winCondition);
 
   // 构建可选目标的详细信息
   const targetDetails = availableTargets.map(userId => {
@@ -169,7 +200,6 @@ export async function decideNightAction(
     const victimPlayer = witchInfo.victim ? state.players.find(p => p.userId === witchInfo.victim) : null;
     promptParams.witchInfo = {
       ...witchInfo,
-      victimNickname: victimPlayer ? (room.players.find(rp => rp.userId === victimPlayer.userId)?.nickname || '未知') : undefined,
       victimSeat: victimPlayer?.seatNumber,
     };
   }
@@ -183,7 +213,7 @@ export async function decideNightAction(
 
   // 调用 LLM
   let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 500 });
-  let parsed = result.success ? extractJSON(result.content) : null;
+  let parsed = result.success ? normalizeTarget(extractJSON(result.content), targetDetails) : null;
   let retried = false;
   let fallback = false;
 
@@ -192,10 +222,10 @@ export async function decideNightAction(
     retried = true;
     result = await callLLM({
       systemPrompt,
-      userPrompt: userPrompt + '\n\n注意：你必须严格返回合法的 JSON，target 必须是提供的 userId 之一。不要输出 JSON 以外的内容。',
+      userPrompt: userPrompt + '\n\n注意：你必须严格返回合法的 JSON，target 必须是提供的座位号之一（数字）。不要输出 JSON 以外的内容。',
       maxTokens: 300,
     });
-    parsed = result.success ? extractJSON(result.content) : null;
+    parsed = result.success ? normalizeTarget(extractJSON(result.content), targetDetails) : null;
   }
 
   // 记录日志
@@ -335,7 +365,7 @@ export async function decideMarking(
 ): Promise<MarkingResult> {
   const ctx = buildAIContext(state, room, aiPlayer);
   const contextText = contextToText(ctx);
-  const systemPrompt = getSystemPrompt(ctx.nickname, ctx.seatNumber, ctx.role, ctx.faction);
+  const systemPrompt = getSystemPrompt(ctx.seatNumber, ctx.role, ctx.faction, room.settings.winCondition);
 
   // 可评价的目标（排除自己）
   const targets = state.players
@@ -380,15 +410,15 @@ export async function decideMarking(
 
 
   let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 1000 });
-  let parsed = result.success ? extractJSON(result.content) : null;
+  let parsed = result.success ? normalizeEvaluationTargets(extractJSON(result.content), targets) : null;
   let retried = false;
 
-  // 校验是否需要重试：结构不完整、评价目标无效（如字面量"userId"）、或狼人声称了"狼人"
+  // 校验是否需要重试：结构不完整、评价目标无效，或狼人声称了"狼人"
   const needsRetry = (p: Record<string, unknown> | null): boolean => {
     if (!p || !p.identity || !Array.isArray(p.evaluations)) return true;
     // 狼人声称身份为"狼人"是致命错误
     if (aiPlayer.faction === 'evil' && p.identity === '狼人') return true;
-    // 检查评价目标是否为有效 userId（而非字面量 "userId" 等占位符）
+    // 检查评价目标是否已映射为合法 userId
     const validTargetIds = targets.map(t => t.userId);
     const evals = p.evaluations as Array<Record<string, unknown>>;
     const validEvalCount = evals.filter(e => validTargetIds.includes(e.target as string)).length;
@@ -399,7 +429,7 @@ export async function decideMarking(
   if (needsRetry(parsed)) {
     retried = true;
     let retryHint = '\n\n注意：必须返回合法 JSON，包含 analysis、identity、reason、evaluations 字段。evaluations 是数组。不要输出 JSON 以外的内容。';
-    retryHint += '\n⚠️ evaluations 中的 target 必须是提供的实际 userId 字符串（如 "7ba09934-380c-..."），不要写 "userId" 这样的占位符。';
+    retryHint += '\n⚠️ evaluations 中的 target 必须是可选列表中的座位号数字，不要填写昵称、userId 或其他字符串。';
     if (aiPlayer.faction === 'evil') {
       retryHint += '\n⚠️ 你是狼人阵营，identity 字段绝对不能填 "狼人"，必须伪装成好人阵营的身份。';
     }
@@ -408,7 +438,7 @@ export async function decideMarking(
       userPrompt: userPrompt + retryHint,
       maxTokens: 800,
     });
-    parsed = result.success ? extractJSON(result.content) : null;
+    parsed = result.success ? normalizeEvaluationTargets(extractJSON(result.content), targets) : null;
   }
 
   logAIDecision(state.roomId, {
@@ -691,7 +721,7 @@ export async function decideVote(
 ): Promise<string> {
   const ctx = buildAIContext(state, room, aiPlayer);
   const contextText = contextToText(ctx);
-  const systemPrompt = getSystemPrompt(ctx.nickname, ctx.seatNumber, ctx.role, ctx.faction);
+  const systemPrompt = getSystemPrompt(ctx.seatNumber, ctx.role, ctx.faction, room.settings.winCondition);
 
   // 不能投自己
   const validCandidates = candidates.filter(c => c !== aiPlayer.userId);
@@ -704,7 +734,6 @@ export async function decideVote(
   const persona = getPersona(state.roomId, aiPlayer.userId);
   const actionPrompt = getVotingPrompt(targetDetails, {
     seatNumber: ctx.seatNumber,
-    nickname: ctx.nickname,
   }, persona.analysisPreference);
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
@@ -712,17 +741,17 @@ export async function decideVote(
 
 
   let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 500 });
-  let parsed = result.success ? extractJSON(result.content) : null;
+  let parsed = result.success ? normalizeTarget(extractJSON(result.content), targetDetails) : null;
   let retried = false;
 
   if (!parsed || !isValidTarget(parsed.target, validCandidates)) {
     retried = true;
     result = await callLLM({
       systemPrompt,
-      userPrompt: userPrompt + '\n\n注意：target 必须是提供的 userId 之一。不要输出 JSON 以外的内容。',
+      userPrompt: userPrompt + '\n\n注意：target 必须是提供的座位号之一（数字）。不要输出 JSON 以外的内容。',
       maxTokens: 300,
     });
-    parsed = result.success ? extractJSON(result.content) : null;
+    parsed = result.success ? normalizeTarget(extractJSON(result.content), targetDetails) : null;
   }
 
   logAIDecision(state.roomId, {
@@ -819,7 +848,7 @@ export async function decideTriggerAction(
 ): Promise<TriggerActionResult> {
   const ctx = buildAIContext(state, room, aiPlayer);
   const contextText = contextToText(ctx);
-  const systemPrompt = getSystemPrompt(ctx.nickname, ctx.seatNumber, ctx.role, ctx.faction);
+  const systemPrompt = getSystemPrompt(ctx.seatNumber, ctx.role, ctx.faction, room.settings.winCondition);
 
   const targetDetails = availableTargets.map(userId => {
     const p = state.players.find(pl => pl.userId === userId);
@@ -848,7 +877,7 @@ export async function decideTriggerAction(
 
 
   const result = await callLLM({ systemPrompt, userPrompt, maxTokens: 400 });
-  const parsed = result.success ? extractJSON(result.content) : null;
+  const parsed = result.success ? normalizeTarget(extractJSON(result.content), targetDetails) : null;
 
   logAIDecision(state.roomId, {
     timestamp: new Date().toISOString(),

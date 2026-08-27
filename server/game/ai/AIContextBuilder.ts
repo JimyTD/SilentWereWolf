@@ -25,7 +25,7 @@ export interface AIContext {
   markHistory: { round: number; player: string; playerNickname: string; seatNumber: number; identity: string; reason: string; evaluations: { target: string; targetNickname: string; targetSeat: number; identity: string; reason: string }[] }[];
 
   // 历史投票记录（公开）
-  voteHistory: { round: number; votes: { voter: string; voterNickname: string; voterSeat: number; target: string; targetNickname: string; targetSeat: number }[]; exiled: string | null }[];
+  voteHistory: { round: number; votes: { voter: string; voterNickname: string; voterSeat: number; target: string; targetNickname: string; targetSeat: number }[]; exiled: number | null }[];
 
   // 角色私有信息（仅该角色可见）
   privateInfo: string[];
@@ -106,7 +106,7 @@ export function buildAIContext(state: GameState, room: Room, aiPlayer: GamePlaye
   ctx.voteHistory = state.history.votes.map((roundVotes, i) => {
     // 找出该轮被放逐的人
     const deaths = state.history.deaths.filter(d => d.cause === 'exiled' && d.round === i + 1);
-    const exiled = deaths.length > 0 ? getNickname(room, deaths[0].userId) : null;
+    const exiled = deaths.length > 0 ? deaths[0].seatNumber : null;
 
     return {
       round: i + 1,
@@ -154,7 +154,7 @@ function buildPrivateInfo(ctx: AIContext, state: GameState, room: Room, aiPlayer
           const target = state.players.find(p => p.userId === nightAction.seer!.target);
           if (target) {
             ctx.privateInfo.push(
-              `第${i + 1}轮查验：${getSeatNumber(state, target.userId)}号${getNickname(room, target.userId)} → ${target.faction === FACTIONS.GOOD ? '好人' : '狼人'}阵营`
+              `第${i + 1}轮查验：${getSeatNumber(state, target.userId)}号玩家 → ${target.faction === FACTIONS.GOOD ? '好人' : '狼人'}阵营`
             );
           }
         }
@@ -172,7 +172,7 @@ function buildPrivateInfo(ctx: AIContext, state: GameState, room: Room, aiPlayer
         const victim = state.players.find(p => p.userId === state.nightActions.wolves!.target);
         if (victim) {
           ctx.privateInfo.push(
-            `今夜被刀：${victim.seatNumber}号${getNickname(room, victim.userId)}`
+            `今夜被刀：${victim.seatNumber}号玩家`
           );
         }
       }
@@ -182,7 +182,7 @@ function buildPrivateInfo(ctx: AIContext, state: GameState, room: Room, aiPlayer
         const nightAction = state.history.rounds[i];
         if (nightAction.witch && nightAction.witch.action !== 'none') {
           const targetName = nightAction.witch.target
-            ? `${getSeatNumber(state, nightAction.witch.target)}号${getNickname(room, nightAction.witch.target)}`
+            ? `${getSeatNumber(state, nightAction.witch.target)}号玩家`
             : '无';
           ctx.privateInfo.push(
             `第${i + 1}轮用药：${nightAction.witch.action === 'antidote' ? '解药' : '毒药'} → ${targetName}`
@@ -196,7 +196,7 @@ function buildPrivateInfo(ctx: AIContext, state: GameState, room: Room, aiPlayer
       const guardState = aiPlayer.roleState as GuardState;
       if (guardState.lastGuardTarget) {
         ctx.privateInfo.push(
-          `上轮守护：${getSeatNumber(state, guardState.lastGuardTarget)}号${getNickname(room, guardState.lastGuardTarget)}（不可连守）`
+          `上轮守护：${getSeatNumber(state, guardState.lastGuardTarget)}号玩家（不可连守）`
         );
       }
       break;
@@ -209,7 +209,7 @@ function buildPrivateInfo(ctx: AIContext, state: GameState, room: Room, aiPlayer
         const nightAction = state.history.rounds[i];
         if (nightAction.wolves?.target) {
           ctx.privateInfo.push(
-            `第${i + 1}轮刀人：${getSeatNumber(state, nightAction.wolves.target)}号${getNickname(room, nightAction.wolves.target)}`
+            `第${i + 1}轮刀人：${getSeatNumber(state, nightAction.wolves.target)}号玩家`
           );
         }
       }
@@ -224,7 +224,7 @@ function buildPrivateInfo(ctx: AIContext, state: GameState, room: Room, aiPlayer
           const target = state.players.find(p => p.userId === nightAction.gravedigger!.target);
           if (target) {
             ctx.privateInfo.push(
-              `第${i + 1}轮验尸：${getSeatNumber(state, target.userId)}号${getNickname(room, target.userId)} → ${target.faction === FACTIONS.GOOD ? '好人' : '狼人'}阵营`
+              `第${i + 1}轮验尸：${getSeatNumber(state, target.userId)}号玩家 → ${target.faction === FACTIONS.GOOD ? '好人' : '狼人'}阵营`
             );
           }
         }
@@ -264,13 +264,13 @@ export function contextToText(ctx: AIContext): string {
 
   lines.push(`=== 当前局势 ===`);
   lines.push(`第 ${ctx.round} 轮，当前阶段：${phaseLabel(ctx.phase)}`);
-  lines.push(`你是 ${ctx.seatNumber}号"${ctx.nickname}"，身份：${roleLabel(ctx.role)}，阵营：${ctx.faction === 'good' ? '好人' : '狼人'}`);
+  lines.push(`你是 ${ctx.seatNumber}号玩家，身份：${roleLabel(ctx.role)}，阵营：${ctx.faction === 'good' ? '好人' : '狼人'}`);
   lines.push('');
 
   lines.push(`=== 存活玩家 ===`);
   for (const p of ctx.alivePlayers) {
     const isMe = p.userId === ctx.alivePlayers.find(ap => ap.seatNumber === ctx.seatNumber)?.userId;
-    lines.push(`${p.seatNumber}号 ${p.nickname}${isMe ? '（你）' : ''}`);
+    lines.push(`${p.seatNumber}号玩家${isMe ? '（你）' : ''}`);
   }
   lines.push('');
 
@@ -278,7 +278,7 @@ export function contextToText(ctx: AIContext): string {
     lines.push(`=== 死亡记录 ===`);
     for (const d of ctx.deadPlayers) {
       const relicStr = d.relics.length > 0 ? `，遗物：${d.relics.map(relicLabel).join('、')}` : '';
-      lines.push(`第${d.round}轮 ${d.seatNumber}号${d.nickname} ${causeLabel(d.cause)}${relicStr}`);
+      lines.push(`第${d.round}轮 ${d.seatNumber}号玩家 ${causeLabel(d.cause)}${relicStr}`);
     }
     if (ctx.deadPlayers.some(d => d.relics.length > 0)) {
       lines.push(`（遗物说明：月光石数值=该玩家被夜间行动造访的总次数，包括被刀、被查验、被守护、被用药；天平徽章"平衡"=左右邻座同阵营，"失衡"=左右邻座不同阵营；猎犬哨数值=该玩家死亡时存活的狼人数量）`);
@@ -289,7 +289,7 @@ export function contextToText(ctx: AIContext): string {
   if (ctx.teammates.length > 0) {
     lines.push(`=== 你的队友（狼人同伴） ===`);
     for (const t of ctx.teammates) {
-      lines.push(`${t.seatNumber}号 ${t.nickname}`);
+      lines.push(`${t.seatNumber}号玩家`);
     }
     lines.push('');
   }
@@ -305,10 +305,10 @@ export function contextToText(ctx: AIContext): string {
   if (ctx.markHistory.length > 0) {
     lines.push(`=== 标记记录 ===`);
     for (const m of ctx.markHistory) {
-      lines.push(`第${m.round}轮 - ${m.seatNumber}号${m.playerNickname}：`);
+      lines.push(`第${m.round}轮 - ${m.seatNumber}号玩家：`);
       lines.push(`  声称身份：${m.identity}（${reasonLabel(m.reason)}）`);
       for (const e of m.evaluations) {
-        lines.push(`  评价：${e.targetSeat}号${e.targetNickname} = ${e.identity}（${reasonLabel(e.reason)}）`);
+        lines.push(`  评价：${e.targetSeat}号玩家 = ${e.identity}（${reasonLabel(e.reason)}）`);
       }
     }
     lines.push('');
@@ -320,7 +320,7 @@ export function contextToText(ctx: AIContext): string {
       const voteSummary = v.votes
         .map(vote => `${vote.voterSeat}号→${vote.targetSeat}号`)
         .join('，');
-      const result = v.exiled ? `→ ${v.exiled}被放逐` : '→ 平票无人出局';
+      const result = v.exiled ? `→ ${v.exiled}号玩家被放逐` : '→ 平票无人出局';
       lines.push(`第${v.round}轮：${voteSummary} ${result}`);
     }
     lines.push('');

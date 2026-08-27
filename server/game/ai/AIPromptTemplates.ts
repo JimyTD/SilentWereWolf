@@ -1,28 +1,38 @@
+import type { WinCondition } from '../../../shared/types/game';
 import { ROLES } from '../../../shared/constants';
 
 /**
  * AI 各阶段 prompt 模板
  */
 
-const GAME_RULES_BRIEF = `你正在参与一局"静夜标记"狼人杀游戏。
+function getGameRulesBrief(winCondition: WinCondition): string {
+  const wolfWinCondition = winCondition === 'city'
+    ? '所有好人被淘汰（屠城）'
+    : '所有神职被淘汰 或 所有平民被淘汰（屠边）';
+
+  return `你正在参与一局"静夜标记"狼人杀游戏。
 规则概要：
 - 好人阵营（神职+平民）vs 狼人阵营
 - 好人胜利条件：所有狼人被淘汰
-- 狼人胜利条件：所有神职被淘汰 或 所有平民被淘汰（屠边）
+- 狼人胜利条件：${wolfWinCondition}
 - 夜晚：各角色按顺序行动（守卫→狼人→女巫→预言家→守墓人）
 - 白天：依次标记发言（声称身份+评价他人），然后投票放逐一人
 - 标记发言时你需要声称自己的身份并给其他玩家贴标签
 - 投票时从候选人中选择一个你认为最可疑的玩家`;
+}
 
 /**
  * 按角色生成策略指导（多种常见策略，不写死）
  */
-function getRoleStrategy(role: string, faction: string): string {
+function getRoleStrategy(role: string, faction: string, winCondition: WinCondition): string {
   if (faction === 'evil') {
     // 狼人阵营通用策略
+    const wolfWinDescription = winCondition === 'city'
+      ? '淘汰所有好人，实现屠城'
+      : '淘汰所有神职或所有平民，实现屠边';
     const wolfBase = `
 【狼人阵营策略指导】
-你的目标：在不暴露身份的前提下淘汰好人，实现屠边（淘汰所有神职 或 所有平民）。
+你的目标：在不暴露身份的前提下${wolfWinDescription}。
 
 ⚠️ 绝对禁止事项（违反任何一条都会导致立刻暴露）：
 - ❌ 绝对不能在标记发言时声称自己是"狼人"！你必须伪装成好人阵营的身份
@@ -172,32 +182,34 @@ function getRoleStrategy(role: string, faction: string): string {
   }
 }
 
-export function getSystemPrompt(nickname: string, seatNumber: number, role: string, faction: string): string {
+export function getSystemPrompt(seatNumber: number, role: string, faction: string, winCondition: WinCondition): string {
   const factionLabel = faction === 'good' ? '好人' : '狼人';
   const roleLabelStr = getRoleLabel(role);
-  const roleStrategy = getRoleStrategy(role, faction);
+  const roleStrategy = getRoleStrategy(role, faction, winCondition);
 
-  return `${GAME_RULES_BRIEF}
+  return `${getGameRulesBrief(winCondition)}
 
-你的名字是"${nickname}"，座位号${seatNumber}。
+你是${seatNumber}号玩家。
 你的身份是"${roleLabelStr}"，属于${factionLabel}阵营。
 ${roleStrategy}
 
 重要规则：
-- 你是一个真实的玩家，像真人一样思考和决策
-- 严格基于你能看到的信息做判断，绝对不能凭空捏造事实或编造不存在的事件
+- 你只能使用 Prompt 中明确提供的信息，不能凭空捏造事实
+- 其他玩家只用座位号表示；不要根据座位号、加入顺序、昵称或玩家类型推断身份
+- 未提供的角色、阵营、行动和玩家类型信息都视为未知
 - 只使用你的角色实际拥有的能力。如果你是狼人，你只能刀人，不能查验；如果你是平民，你没有任何特殊能力
 - 在分析中引用的事件（如"第X轮我做了什么"）必须与你的私有信息一致，不要编造
 - 每次决策前先进行分析推理，然后再给出结论
 - 回复必须严格按照指定的 JSON 格式`;
 }
 
+type PromptTarget = { seatNumber: number };
+
 export interface NightActionPromptParams {
   role: string;
-  availableTargets: { userId: string; nickname: string; seatNumber: number }[];
+  availableTargets: PromptTarget[];
   witchInfo?: {
     victim: string | null;
-    victimNickname?: string;
     victimSeat?: number;
     hasAntidote: boolean;
     hasPoison: boolean;
@@ -208,7 +220,7 @@ export interface NightActionPromptParams {
 export function getNightActionPrompt(params: NightActionPromptParams): string {
   const { role, availableTargets, witchInfo } = params;
   const targetList = availableTargets
-    .map(t => `${t.seatNumber}号${t.nickname}(userId:"${t.userId}")`)
+    .map(t => `${t.seatNumber}号玩家`)
     .join('、');
 
   switch (role) {
@@ -219,7 +231,7 @@ export function getNightActionPrompt(params: NightActionPromptParams): string {
 
 请先分析每个目标的价值（谁可能是神职？谁对我们威胁最大？），然后选择目标。
 返回 JSON：
-{"analysis": "你的分析推理过程", "target": "目标的userId"}`;
+{"analysis": "你的分析推理过程", "target": 6}`;
 
     case ROLES.SEER:
       return `现在是夜晚，轮到你查验一名玩家的阵营。
@@ -227,13 +239,13 @@ export function getNightActionPrompt(params: NightActionPromptParams): string {
 
 请先分析谁最值得查验（谁最可疑？谁的身份最有争议？已知信息还有哪些盲点？），然后选择目标。
 返回 JSON：
-{"analysis": "你的分析推理过程", "target": "目标的userId"}`;
+{"analysis": "你的分析推理过程", "target": 6}`;
 
     case ROLES.WITCH: {
       let info = '现在是夜晚，轮到女巫行动。\n';
       if (witchInfo) {
         if (witchInfo.victim && witchInfo.hasAntidote) {
-          info += `今夜被刀的是：${witchInfo.victimSeat}号${witchInfo.victimNickname}\n`;
+          info += `今夜被刀的是：${witchInfo.victimSeat}号玩家\n`;
           info += witchInfo.canSelfSave ? '你可以使用解药（包括自救）。\n' : '你可以使用解药救人（不能自救）。\n';
         } else if (!witchInfo.hasAntidote) {
           info += '你的解药已经用过了。\n';
@@ -252,7 +264,7 @@ export function getNightActionPrompt(params: NightActionPromptParams): string {
 请先分析当前局势（该不该用药？用哪瓶？救人还是毒人更有价值？），然后决定行动。
 返回 JSON：
 - 使用解药：{"analysis": "分析过程", "potion": "antidote", "target": null}
-- 使用毒药：{"analysis": "分析过程", "potion": "poison", "target": "目标的userId"}
+- 使用毒药：{"analysis": "分析过程", "potion": "poison", "target": 6}
 - 不使用：{"analysis": "分析过程", "potion": "none", "target": null}`;
       return info;
     }
@@ -264,7 +276,7 @@ export function getNightActionPrompt(params: NightActionPromptParams): string {
 
 请先分析谁最可能被刀（谁最有价值？狼人最想杀谁？），然后选择守护目标。
 返回 JSON：
-- 守护某人：{"analysis": "分析过程", "target": "目标的userId"}
+- 守护某人：{"analysis": "分析过程", "target": 6}
 - 不守护：{"analysis": "分析过程", "target": null}`;
 
     case ROLES.GRAVEDIGGER:
@@ -273,7 +285,7 @@ export function getNightActionPrompt(params: NightActionPromptParams): string {
 
 请先分析验哪个死者最有价值（确认谁的阵营对推理帮助最大？），然后选择。
 返回 JSON：
-{"analysis": "分析过程", "target": "目标的userId"}
+{"analysis": "分析过程", "target": 6}
 或不验尸：{"analysis": "分析过程", "target": null}`;
 
     default:
@@ -284,7 +296,7 @@ export function getNightActionPrompt(params: NightActionPromptParams): string {
 export interface MarkingPromptParams {
   evaluationMarkCount: number;
   availableIdentities: string[];
-  availableTargets: { userId: string; nickname: string; seatNumber: number }[];
+  availableTargets: PromptTarget[];
   availableReasons: string[];
   analysisPreference?: string;
 }
@@ -292,7 +304,7 @@ export interface MarkingPromptParams {
 export function getMarkingPrompt(params: MarkingPromptParams): string {
   const { evaluationMarkCount, availableIdentities, availableTargets, availableReasons, analysisPreference } = params;
   const targetList = availableTargets
-    .map(t => `${t.seatNumber}号${t.nickname}(userId:"${t.userId}")`)
+    .map(t => `${t.seatNumber}号玩家`)
     .join('、');
 
   const personalityBlock = analysisPreference
@@ -330,7 +342,7 @@ ${personalityBlock}
   "identity": "你声称的身份",
   "reason": "声称理由(英文key)",
   "evaluations": [
-    {"target": "userId", "identity": "评价身份", "reason": "理由(英文key)"},
+    {"target": 6, "identity": "评价身份", "reason": "理由(英文key)"},
     ...共 ${evaluationMarkCount} 条
   ]
 }
@@ -344,16 +356,16 @@ ${personalityBlock}
 const DEFAULT_PREFERENCE = `你的分析偏好：综合考虑标记内容、投票行为与死亡线索，独立判断。`;
 
 export function getVotingPrompt(
-  candidates: { userId: string; nickname: string; seatNumber: number }[],
-  self?: { seatNumber: number; nickname: string },
+  candidates: { seatNumber: number }[],
+  self?: { seatNumber: number },
   analysisPreference?: string,
 ): string {
   const targetList = candidates
-    .map(t => `${t.seatNumber}号${t.nickname}(userId:"${t.userId}")`)
+    .map(t => `${t.seatNumber}号玩家`)
     .join('、');
 
   const selfReminder = self
-    ? `\n注意：你是${self.seatNumber}号${self.nickname}，候选人列表中没有你自己，你只能从以上候选人中选择。`
+    ? `\n注意：你是${self.seatNumber}号玩家，候选人列表中没有你自己，你只能从以上候选人中选择。`
     : '';
 
   const personality = analysisPreference
@@ -375,15 +387,15 @@ ${personality}
 - 综合以上信息，你认为谁最可能是狼人？
 
 然后返回 JSON：
-{"analysis": "你的分析推理过程", "target": "目标的userId"}`;
+{"analysis": "你的分析推理过程", "target": 6}`;
 }
 
-export function getHunterPrompt(canShoot: boolean, targets: { userId: string; nickname: string; seatNumber: number }[]): string {
+export function getHunterPrompt(canShoot: boolean, targets: PromptTarget[]): string {
   if (!canShoot) {
     return '你被毒死了，无法开枪。请返回：{"action": "skip", "target": null}';
   }
   const targetList = targets
-    .map(t => `${t.seatNumber}号${t.nickname}(userId:"${t.userId}")`)
+    .map(t => `${t.seatNumber}号玩家`)
     .join('、');
 
   return `你是猎人，你已出局，可以选择开枪带走一人。
@@ -392,13 +404,13 @@ export function getHunterPrompt(canShoot: boolean, targets: { userId: string; ni
 请先分析：谁最可能是狼人？你有确定的信息吗？如果不确定，是否值得赌一把还是不开枪更安全？
 
 然后返回 JSON：
-- 开枪：{"analysis": "分析过程", "action": "shoot", "target": "目标的userId"}
+- 开枪：{"analysis": "分析过程", "action": "shoot", "target": 6}
 - 不开枪：{"analysis": "分析过程", "action": "skip", "target": null}`;
 }
 
-export function getKnightPrompt(targets: { userId: string; nickname: string; seatNumber: number }[]): string {
+export function getKnightPrompt(targets: PromptTarget[]): string {
   const targetList = targets
-    .map(t => `${t.seatNumber}号${t.nickname}(userId:"${t.userId}")`)
+    .map(t => `${t.seatNumber}号玩家`)
     .join('、');
 
   return `你是骑士，你可以选择与一名玩家决斗。如果对方是狼人，对方出局；如果不是，你自己出局。
@@ -407,13 +419,13 @@ export function getKnightPrompt(targets: { userId: string; nickname: string; sea
 请先分析：你有多大把握某人是狼人？决斗失败的代价很大（你会出局），是否值得冒险？
 
 然后返回 JSON：
-- 决斗：{"analysis": "分析过程", "action": "duel", "target": "目标的userId"}
+- 决斗：{"analysis": "分析过程", "action": "duel", "target": 6}
 - 不决斗：{"analysis": "分析过程", "action": "skip", "target": null}`;
 }
 
-export function getWolfKingPrompt(targets: { userId: string; nickname: string; seatNumber: number }[]): string {
+export function getWolfKingPrompt(targets: PromptTarget[]): string {
   const targetList = targets
-    .map(t => `${t.seatNumber}号${t.nickname}(userId:"${t.userId}")`)
+    .map(t => `${t.seatNumber}号玩家`)
     .join('、');
 
   return `你是白狼王，你被放逐出局，可以选择带走一名玩家。
@@ -422,7 +434,7 @@ export function getWolfKingPrompt(targets: { userId: string; nickname: string; s
 请先分析：谁是好人阵营中最有价值的目标？带走谁对狼人阵营最有利？
 
 然后返回 JSON：
-- 带人：{"analysis": "分析过程", "action": "drag", "target": "目标的userId"}
+- 带人：{"analysis": "分析过程", "action": "drag", "target": 6}
 - 不带人：{"analysis": "分析过程", "action": "skip", "target": null}`;
 }
 
