@@ -20,6 +20,27 @@ type IOServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 const AI_ACTION_TIMEOUT_MS = 60000;
 
+/**
+ * 已触发过 AI 决策的行动去重表（key: roomId:actionId:actor）。
+ * 玩家断线重连时服务端会重发当前阶段事件（如 onVotingStart）用于同步真人客户端状态，
+ * 但事件回调会连带重复触发 AI 决策管线——导致 LLM 重复调用、
+ * 幂等拒绝和「投票未被接受→兜底→最终提交失败」风暴。此处按 actionId 去重阻断。
+ */
+const handledAIActionKeys = new Set<string>();
+
+function shouldRunAIAction(key: string): boolean {
+  if (handledAIActionKeys.has(key)) return false;
+  handledAIActionKeys.add(key);
+  return true;
+}
+
+function releaseAIActionKeys(roomId: string): void {
+  const prefix = `${roomId}:`;
+  for (const key of handledAIActionKeys) {
+    if (key.startsWith(prefix)) handledAIActionKeys.delete(key);
+  }
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timeoutHandle = setTimeout(() => reject(new Error(`${label}超时(${timeoutMs / 1000}s)`)), timeoutMs);
@@ -409,6 +430,34 @@ export function registerSocketHandlers(
     }
   });
 
+  // ========== 认输退出 ==========
+  socket.on('client:resignGame', (callback) => {
+    try {
+      const user = roomManager.getUser(userId);
+      if (!user?.roomId) {
+        callback?.({ success: false, error: 'NOT_IN_ROOM', message: '你不在房间中' });
+        return;
+      }
+      const gm = roomManager.getGameManager(user.roomId);
+      if (!gm) {
+        callback?.({ success: false, error: 'GAME_NOT_FOUND', message: '游戏状态不存在' });
+        return;
+      }
+      logHumanAction(user.roomId, userId, nickname, 'resignGame', {}, gm.getState().round);
+      const ok = gm.handleResign(userId);
+      if (!ok) {
+        callback?.({ success: false, error: 'CANNOT_RESIGN', message: '当前无法认输（游戏未开始或你已出局）' });
+        return;
+      }
+      // 释放房间占用：游戏中离开标记掉线并清空 roomId，玩家可立即开新局
+      roomManager.leaveRoom(userId);
+      callback?.({ success: true });
+    } catch (err) {
+      console.error('[client:resignGame] 错误:', err);
+      callback?.({ success: false, error: 'INTERNAL_ERROR', message: '认输处理失败，请稍后重试' });
+    }
+  });
+
   // ========== 断线处理 ==========
 
   socket.on('disconnect', () => {
@@ -737,6 +786,11 @@ function bindGameCallbacks(
     io.to(roomId).emit('server:duelResult', { loser: loserId });
   };
 
+  gm.onPlayerResigned = (resignedUserId) => {
+    // 认输视为离局，复用 playerLeft 通知前端更新
+    io.to(roomId).emit('server:playerLeft', { userId: resignedUserId });
+  };
+
   gm.onGameOver = (winner, reason) => {
     const state = gm.getState();
     const room = roomManager.getRoom(roomId);
@@ -787,6 +841,8 @@ function bindGameCallbacks(
 
     // 保存 AI 对局日志
     flushLogs(roomId);
+    // 清理本局的 AI 决策去重记录
+    releaseAIActionKeys(roomId);
 
     roomManager.endGame(roomId);
   };
@@ -804,6 +860,8 @@ async function handleAINightAction(
   witchInfo?: { victim: string | null; hasAntidote: boolean; hasPoison: boolean; canSelfSave: boolean },
   actionId?: string,
 ): Promise<void> {
+  // 防重入：同一 actionId 同一玩家只决策一次（重连同步会重复触发）
+  if (!shouldRunAIAction(`${roomId}:${actionId ?? 'legacy'}:${aiUserId}`)) return;
   const state = gm.getState();
   const room = roomManager.getRoom(roomId);
   if (!room) return;
@@ -852,6 +910,8 @@ async function handleAIMarking(
   identities: string[],
   actionId?: string,
 ): Promise<void> {
+  // 防重入：同一 actionId 同一玩家只决策一次（重连同步会重复触发）
+  if (!shouldRunAIAction(`${roomId}:${actionId ?? 'legacy'}:${aiUserId}`)) return;
   const state = gm.getState();
   const room = roomManager.getRoom(roomId);
   if (!room) return;
@@ -912,6 +972,8 @@ async function handleAIVoting(
   candidates: string[],
   actionId?: string,
 ): Promise<void> {
+  // 防重入：一次投票行动只跑一轮 AI 决策（重连同步会重复触发）
+  if (!shouldRunAIAction(`${roomId}:${actionId ?? 'legacy'}:voting`)) return;
   const state = gm.getState();
   const room = roomManager.getRoom(roomId);
   if (!room) return;
@@ -946,6 +1008,11 @@ async function handleAIVoting(
     let submitted = gm.handleVote(aiPlayer.userId, target, actionId);
 
     if (!submitted && !fallbackUsed) {
+      // 行动已失效（阶段切换/已被代打）时，兜底提交注定失败，直接放弃避免无效重试
+      if (!gm.isActionActive(actionId)) {
+        console.warn(`[AI] 投票行动已失效，放弃提交(${aiPlayer.userId}, actionId=${actionId || 'legacy'})`);
+        continue;
+      }
       fallbackUsed = true;
       console.warn(`[AI] 投票未被接受，使用兜底(${aiPlayer.userId})`);
       submitted = gm.handleVote(

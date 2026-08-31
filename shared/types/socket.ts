@@ -30,6 +30,7 @@ export interface ClientToServerEvents {
   'client:hunterAction': (data: { action: 'shoot' | 'skip'; target?: string; actionId?: string }) => void;
   'client:knightAction': (data: { action: 'duel' | 'skip'; target?: string; actionId?: string }) => void;
   'client:wolfKingAction': (data: { action: 'drag' | 'skip'; target?: string; actionId?: string }) => void;
+  'client:resignGame': (callback?: (res: BaseResponse) => void) => void;
 }
 
 // ========== 服务端 → 客户端 事件 ==========

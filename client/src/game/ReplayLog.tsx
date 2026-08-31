@@ -16,6 +16,7 @@ const DEATH_CAUSE_LABELS: Record<string, string> = {
   wolfKingDrag: '被白狼王带走',
   duel: '骑士决斗出局',
   guardWitchClash: '守卫女巫同守致死',
+  resigned: '认输退出',
 };
 
 const REASON_LABELS: Record<string, string> = {

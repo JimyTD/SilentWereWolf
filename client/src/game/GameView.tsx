@@ -10,6 +10,7 @@ import VotingPanel from './VotingPanel';
 import GameOverPanel from './GameOverPanel';
 import TriggerPanel from './TriggerPanel';
 import PhaseHeader from './PhaseHeader';
+import ResignButton from './ResignButton';
 import EventToast, { type EventToastData } from '../components/EventToast';
 import { getPlayerLabel } from './playerLabel';
 import { getEvaluationColor, getIdentityColor } from './identityColor';
@@ -177,6 +178,9 @@ export default function GameView({ room }: Props) {
       <div className="sticky top-0 z-20">
         <PhaseHeader />
       </div>
+
+      {/* 认输退出入口 */}
+      <ResignButton />
 
       {/* 可滚动的主内容区 */}
       <div className="flex-1 overflow-y-auto overscroll-contain">

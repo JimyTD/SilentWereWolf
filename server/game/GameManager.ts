@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Room } from '../../shared/types/room';
 import type { GameOverReason } from '../../shared/types/socket';
 import { clearPersonas } from './ai/AIPersona';
+import { logGameEvent } from './ai/AILogger';
 
 import type {
   GameState,
@@ -69,6 +70,7 @@ export class GameManager {
   public onVotingStart?: (candidates: string[], actionId?: string) => void;
   public onVotingResult?: (votes: VoteRecord[], exiled: string | null, tie: boolean) => void;
   public onGameOver?: (winner: 'good' | 'evil', reason: GameOverReason) => void;
+  public onPlayerResigned?: (userId: string) => void;
   public onWolfVoteUpdate?: (wolfUserIds: string[], votes: Record<string, string>, actionId?: string) => void;
   public onInvestigateResult?: (userId: string, target: string, faction: 'good' | 'evil') => void;
   // 瀹堝浜烘煡楠岀粨鏋?
@@ -166,6 +168,17 @@ export class GameManager {
     const active = this.activeAction;
     if (!active || active.actionId !== actionId) return;
 
+    // 断线兜底必须留痕：真人被服务端代打是复盘关键事件，静默处理会导致排查靠猜
+    const nickname = this.room.players.find(p => p.userId === userId)?.nickname || userId.slice(0, 6);
+    console.log(`[断线兜底] 房间${this.state.roomId} R${this.state.round} ${nickname} 断线超时，服务端代为行动(${active.actionType})`);
+    logGameEvent(this.state.roomId, {
+      timestamp: new Date().toISOString(),
+      eventType: 'humanAction',
+      round: this.state.round,
+      actorUserId: userId,
+      detail: { nickname, action: 'disconnectedFallback', actionType: active.actionType, actionId },
+    });
+
     switch (active.actionType) {
       case 'night': {
         const player = this.state.players.find(candidate => candidate.userId === userId);
@@ -216,6 +229,56 @@ export class GameManager {
         this.handleKnightAction(userId, 'skip', undefined, actionId);
         return;
     }
+  }
+
+  /**
+   * 玩家认输退出：视为死亡（不触发猎人/狼王等任何技能）、
+   * 豁免正在等待的行动、检查胜负。调用方需随后释放其房间占用。
+   */
+  handleResign(userId: string): boolean {
+    if (this.state.status !== 'playing') return false;
+    const player = this.state.players.find(p => p.userId === userId);
+    if (!player || !player.alive) return false;
+
+    // 若正在等待该玩家行动，先按断线兜底代为提交，避免当前阶段卡死
+    const active = this.activeAction;
+    if (active && active.actorUserIds.includes(userId) && !active.submittedUserIds.has(userId)) {
+      this.submitDisconnectedFallback(userId, active.actionId);
+    }
+
+    // 兜底提交可能推进阶段并直接结束游戏（如放逐触发胜负判定）
+    if (this.state.status !== 'playing') return true;
+
+    // 认输死亡：主动放弃，不触发任何技能
+    player.alive = false;
+    this.state.history.deaths.push({
+      userId,
+      seatNumber: player.seatNumber,
+      cause: DEATH_CAUSE.RESIGNED,
+      round: this.state.round,
+      relics: [],
+    });
+
+    console.log(`[认输] 房间${this.state.roomId} R${this.state.round} ${this.room.players.find(p => p.userId === userId)?.nickname || userId.slice(0, 6)} 认输出局`);
+    logGameEvent(this.state.roomId, {
+      timestamp: new Date().toISOString(),
+      eventType: 'humanAction',
+      round: this.state.round,
+      actorUserId: userId,
+      detail: { nickname: this.room.players.find(p => p.userId === userId)?.nickname || '', action: 'resignGame', payload: {} },
+    });
+
+    this.onPlayerResigned?.(userId);
+    const winResult = checkWinCondition(this.state, this.winCondition);
+    if (winResult) {
+      this.endGame(winResult.winner, winResult.reason);
+    }
+    return true;
+  }
+
+  /** 当前行动是否仍是活跃行动（未被阶段切换作废） */
+  isActionActive(actionId: string | undefined): boolean {
+    return !!actionId && this.activeAction?.actionId === actionId;
   }
 
   private validateAction(

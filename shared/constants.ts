@@ -269,6 +269,7 @@ export const DEATH_CAUSE = {
   WOLF_KING_DRAG: 'wolfKingDrag',
   DUEL: 'duel',
   GUARD_WITCH_CLASH: 'guardWitchClash',
+  RESIGNED: 'resigned',
 } as const;
 
 // 默认计时器（秒）

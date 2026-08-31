@@ -53,7 +53,7 @@ export default function NightActionPanel() {
       });
     } else {
       socket.emit('client:nightAction', {
-        action: nightAction.role === 'werewolf' ? 'attack' :
+        action: isWolf(nightAction.role) ? 'attack' :
                 nightAction.role === 'seer' ? 'investigate' :
                 nightAction.role === 'guard' ? 'guard' : 'skip',
         target: selectedTarget || undefined,
