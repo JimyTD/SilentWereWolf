@@ -31,7 +31,7 @@ import {
   DEATH_CAUSE,
   COMMON_REASONS,
 } from '../../shared/constants';
-import { getRolesFromSettings, isMarkReasonAllowedForRole } from '../../shared/validators';
+import { getRolesFromSettings, isMarkReasonAllowedForIdentity } from '../../shared/validators';
 import { createRole } from './roles/index';
 
 type ActionType = 'night' | 'marking' | 'voting' | 'hunter_shoot' | 'wolf_king_drag' | 'knight_duel';
@@ -1114,8 +1114,7 @@ export class GameManager {
     if (!availableIdentities.has(marks.identityMark.identity)) return false;
 
     const availableEvaluationIdentities = new Set([...availableIdentities, '狼人']);
-    const player = this.state.players.find(candidate => candidate.userId === userId);
-    if (!player || !isMarkReasonAllowedForRole(player.role, marks.identityMark.reason)) return false;
+    if (!isMarkReasonAllowedForIdentity(marks.identityMark.identity, marks.identityMark.reason)) return false;
 
     const maxEvaluationCount = getEvaluationMarkCount(
       this.state.players.filter(player => player.alive).length,
@@ -1128,7 +1127,7 @@ export class GameManager {
       if (!target || !target.alive || target.userId === userId) return false;
       if (evaluatedTargets.has(mark.target)) return false;
       if (!availableEvaluationIdentities.has(mark.identity)) return false;
-      if (!isMarkReasonAllowedForRole(player.role, mark.reason)) return false;
+      if (!isMarkReasonAllowedForIdentity(marks.identityMark.identity, mark.reason)) return false;
       evaluatedTargets.add(mark.target);
     }
 

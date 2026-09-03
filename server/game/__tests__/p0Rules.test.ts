@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { COMMON_REASONS, ROLES, SPECIAL_REASONS } from '../../../shared/constants';
 import type { GamePlayer, GameState } from '../../../shared/types/game';
 import type { Room } from '../../../shared/types/room';
-import { isMarkReasonAllowedForRole } from '../../../shared/validators';
+import { isMarkReasonAllowedForIdentity } from '../../../shared/validators';
 import { Guard } from '../roles/Guard';
 import { Gravedigger } from '../roles/Gravedigger';
 import { fallbackNightAction } from '../ai/AIPlayerController';
@@ -48,17 +48,21 @@ function createState(players: GamePlayer[]): GameState {
 }
 
 describe('标记理由权限', () => {
-  it('普通理由对所有职业可用，特殊理由只对对应职业可用', () => {
-    expect(isMarkReasonAllowedForRole(ROLES.VILLAGER, COMMON_REASONS.INTUITION)).toBe(true);
-    expect(isMarkReasonAllowedForRole(ROLES.WEREWOLF, SPECIAL_REASONS.INVESTIGATION)).toBe(false);
-    expect(isMarkReasonAllowedForRole(ROLES.SEER, SPECIAL_REASONS.INVESTIGATION)).toBe(true);
-    expect(isMarkReasonAllowedForRole(ROLES.GRAVEDIGGER, SPECIAL_REASONS.INVESTIGATION)).toBe(true);
-    expect(isMarkReasonAllowedForRole(ROLES.WITCH, SPECIAL_REASONS.POTION_RESULT)).toBe(true);
-    expect(isMarkReasonAllowedForRole(ROLES.SEER, SPECIAL_REASONS.POTION_RESULT)).toBe(false);
+  it('普通理由对所有声明身份可用，特殊理由按声明身份开放', () => {
+    expect(isMarkReasonAllowedForIdentity('平民', COMMON_REASONS.INTUITION)).toBe(true);
+    expect(isMarkReasonAllowedForIdentity('狼人', SPECIAL_REASONS.INVESTIGATION)).toBe(false);
+    expect(isMarkReasonAllowedForIdentity('预言家', SPECIAL_REASONS.INVESTIGATION)).toBe(true);
+    expect(isMarkReasonAllowedForIdentity('守墓人', SPECIAL_REASONS.INVESTIGATION)).toBe(true);
+    expect(isMarkReasonAllowedForIdentity('女巫', SPECIAL_REASONS.POTION_RESULT)).toBe(true);
+    expect(isMarkReasonAllowedForIdentity('预言家', SPECIAL_REASONS.POTION_RESULT)).toBe(false);
+  });
+
+  it('狼人可以跳预言家并声称查验结论', () => {
+    expect(isMarkReasonAllowedForIdentity('预言家', SPECIAL_REASONS.INVESTIGATION)).toBe(true);
   });
 
   it('未知理由不可用', () => {
-    expect(isMarkReasonAllowedForRole(ROLES.VILLAGER, 'unknown_reason')).toBe(false);
+    expect(isMarkReasonAllowedForIdentity('平民', 'unknown_reason')).toBe(false);
   });
 });
 

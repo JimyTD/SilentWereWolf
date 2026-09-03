@@ -69,18 +69,18 @@ export function getRolesFromSettings(settings: GameSettings): string[] {
 }
 
 /**
- * 校验标记理由是否与玩家真实职业匹配。
- * 普通理由所有职业可用，特殊理由只能由对应职业提交。
+ * 校验标记理由是否与玩家声明的身份匹配。
+ * 玩家可以诈身份；特殊理由只要求声明的身份匹配，不校验真实职业。
  */
-export function isMarkReasonAllowedForRole(role: string, reason: MarkReason | string): boolean {
+export function isMarkReasonAllowedForIdentity(identity: string, reason: MarkReason | string): boolean {
   if (Object.values(COMMON_REASONS).includes(reason as typeof COMMON_REASONS[keyof typeof COMMON_REASONS])) {
     return true;
   }
   if (reason === SPECIAL_REASONS.INVESTIGATION) {
-    return role === ROLES.SEER || role === ROLES.GRAVEDIGGER;
+    return identity === '预言家' || identity === '守墓人';
   }
   if (reason === SPECIAL_REASONS.POTION_RESULT) {
-    return role === ROLES.WITCH;
+    return identity === '女巫';
   }
   return false;
 }

@@ -369,15 +369,16 @@ export function guardMarking(
     }
   }
 
-  // === 4. 非查验角色不得使用 investigation 理由 ===
-  const canInvestigate = aiPlayer.role === ROLES.SEER || aiPlayer.role === ROLES.GRAVEDIGGER;
-  if (!canInvestigate) {
+  // === 4. 特殊理由必须匹配玩家公开声明的身份 ===
+  // 允许狼人或平民诈称预言家/女巫；这里不能按真实角色拦截。
+  const canClaimInvestigation = identityMark.identity === '预言家' || identityMark.identity === '守墓人';
+  if (!canClaimInvestigation) {
     if (identityMark.reason === SPECIAL_REASONS.INVESTIGATION) {
       corrections.push({
         field: 'identity_reason',
         from: 'investigation',
         to: 'intuition',
-        reason: '本角色没有查验能力，不能使用查验结论作为理由',
+        reason: '公开声明的身份不是预言家或守墓人，不能使用查验结论理由',
       });
       identityMark.reason = COMMON_REASONS.INTUITION as MarkReason;
     }
@@ -387,22 +388,22 @@ export function guardMarking(
           field: `eval_reason:${seatOf(ev.target)}`,
           from: 'investigation',
           to: 'intuition',
-          reason: '本角色没有查验能力，不能使用查验结论作为理由',
+          reason: '公开声明的身份不是预言家或守墓人，不能使用查验结论理由',
         });
         ev.reason = COMMON_REASONS.INTUITION as MarkReason;
       }
     }
   }
 
-  // === 5. 非女巫不得使用 potion_result 理由 ===
-  if (aiPlayer.role !== ROLES.WITCH) {
+  // === 5. 用药结果必须匹配玩家公开声明的女巫身份 ===
+  if (identityMark.identity !== '女巫') {
     if (identityMark.reason === SPECIAL_REASONS.POTION_RESULT) {
       identityMark.reason = COMMON_REASONS.INTUITION as MarkReason;
       corrections.push({
         field: 'identity_reason',
         from: 'potion_result',
         to: 'intuition',
-        reason: '本角色没有用药能力',
+        reason: '公开声明的身份不是女巫，不能使用用药结果理由',
       });
     }
     for (const ev of evaluationMarks) {
@@ -412,7 +413,7 @@ export function guardMarking(
           field: `eval_reason:${seatOf(ev.target)}`,
           from: 'potion_result',
           to: 'intuition',
-          reason: '本角色没有用药能力',
+          reason: '公开声明的身份不是女巫，不能使用用药结果理由',
         });
       }
     }
