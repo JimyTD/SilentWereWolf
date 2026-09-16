@@ -1,6 +1,7 @@
-import type { GameState, GamePlayer, WitchState, GuardState } from '../../../shared/types/game';
+import type { GameState, GamePlayer } from '../../../shared/types/game';
 import type { Room } from '../../../shared/types/room';
-import { ROLES, FACTIONS } from '../../../shared/constants';
+import { FACTIONS, toPublicDeathCause } from '../../../shared/constants';
+import { buildMyPrivateInfo } from '../../../shared/privateInfo';
 
 /**
  * AI 信息上下文构建器
@@ -110,12 +111,12 @@ export function buildAIContext(state: GameState, room: Room, aiPlayer: GamePlaye
     }))
     .sort((a, b) => a.seatNumber - b.seatNumber);
 
-  // 死亡记录
+  // 死亡记录（公开信息：夜间出局不区分毒杀/同守同救，避免 AI 拿到玩家看不到的信息）
   ctx.publicFacts.deadPlayers = state.history.deaths.map(d => ({
     userId: d.userId,
     nickname: getNickname(room, d.userId),
     seatNumber: d.seatNumber,
-    cause: d.cause,
+    cause: toPublicDeathCause(d.cause),
     round: d.round,
     relics: d.relics
       .filter(r => r.revealed)
@@ -177,100 +178,55 @@ export function buildAIContext(state: GameState, room: Room, aiPlayer: GamePlaye
 }
 
 /**
- * 按角色构建私有信息
+ * 按角色构建私有信息。
+ * 推导逻辑与下发给真人玩家的 buildMyPrivateInfo 共用，避免两边各写一套而漂移。
  */
 function buildPrivateInfo(ctx: AIContext, state: GameState, _room: Room, aiPlayer: GamePlayer): void {
-  const role = aiPlayer.role;
+  const info = buildMyPrivateInfo(state, aiPlayer);
+  const toSeat = (userId: string | null): number | null =>
+    userId ? getSeatNumber(state, userId) : null;
 
-  switch (role) {
-    case ROLES.SEER:
-    case ROLES.GRAVEDIGGER: {
-      const kind = role === ROLES.SEER ? 'seer' : 'gravedigger';
-      const actionKey = role === ROLES.SEER ? 'seer' : 'gravedigger';
-      for (let i = 0; i < state.history.rounds.length; i++) {
-        const nightAction = state.history.rounds[i];
-        const targetId = nightAction[actionKey]?.target;
-        if (!targetId) continue;
-        const target = state.players.find(p => p.userId === targetId);
-        if (target) {
-          ctx.privateFacts.investigations.push({
-            round: i + 1,
-            kind,
-            targetSeat: target.seatNumber,
-            faction: target.faction,
-          });
-        }
-      }
-      break;
-    }
-
-    case ROLES.WITCH: {
-      const witchState = aiPlayer.roleState as WitchState;
-      const currentVictim = state.nightActions.wolves?.target
-        ? state.players.find(p => p.userId === state.nightActions.wolves!.target)
-        : undefined;
-      const potionHistory: { round: number; potion: 'antidote' | 'poison'; targetSeat: number | null }[] = [];
-      for (let i = 0; i < state.history.rounds.length; i++) {
-        const nightAction = state.history.rounds[i];
-        if (!nightAction.witch || nightAction.witch.action === 'none') continue;
-        potionHistory.push({
-          round: i + 1,
-          potion: nightAction.witch.action,
-          targetSeat: nightAction.witch.target ? getSeatNumber(state, nightAction.witch.target) : null,
-        });
-      }
-      ctx.privateFacts.witch = {
-        antidoteUsed: witchState.antidoteUsed,
-        poisonUsed: witchState.poisonUsed,
-        currentVictimSeat: currentVictim?.seatNumber ?? null,
-        potionHistory,
-      };
-      break;
-    }
-
-    case ROLES.GUARD: {
-      const guardState = aiPlayer.roleState as GuardState;
-      ctx.privateFacts.lastGuardTargetSeat = guardState.lastGuardTarget
-        ? getSeatNumber(state, guardState.lastGuardTarget)
-        : null;
-      break;
-    }
-
-    case ROLES.WEREWOLF:
-    case ROLES.WOLF_KING: {
-      for (let i = 0; i < state.history.rounds.length; i++) {
-        const target = state.history.rounds[i].wolves?.target;
-        if (target) {
-          ctx.privateFacts.wolfAttacks.push({
-            round: i + 1,
-            targetSeat: getSeatNumber(state, target),
-          });
-        }
-      }
-      break;
-    }
-
-    case ROLES.HUNTER: {
-      const hunterState = aiPlayer.roleState as { canShoot: boolean };
-      ctx.privateFacts.hunterCanShoot = hunterState.canShoot;
-      break;
-    }
-
-    case ROLES.KNIGHT: {
-      const knightState = aiPlayer.roleState as { duelUsed: boolean };
-      ctx.privateFacts.knightDuelUsed = knightState.duelUsed;
-      break;
-    }
-
-    case ROLES.FOOL: {
-      const foolState = aiPlayer.roleState as { immunityUsed: boolean };
-      ctx.privateFacts.foolImmunityUsed = foolState.immunityUsed;
-      break;
-    }
-
-    default:
-      break;
+  // 预言家 / 守墓人：查验历史
+  if (info.investigations) {
+    ctx.privateFacts.investigations = info.investigations.map(r => ({
+      round: r.round,
+      kind: r.kind,
+      targetSeat: getSeatNumber(state, r.target),
+      faction: r.faction,
+    }));
   }
+
+  // 女巫：药水剩余、当夜被袭击者、用药历史
+  if (info.witch) {
+    ctx.privateFacts.witch = {
+      antidoteUsed: info.witch.antidoteUsed,
+      poisonUsed: info.witch.poisonUsed,
+      currentVictimSeat: toSeat(state.nightActions.wolves?.target ?? null),
+      potionHistory: info.witch.potionHistory.map(p => ({
+        round: p.round,
+        potion: p.potion,
+        targetSeat: toSeat(p.target),
+      })),
+    };
+  }
+
+  // 守卫：上一轮守护目标（不可连守）
+  if (info.guard) {
+    ctx.privateFacts.lastGuardTargetSeat = toSeat(info.guard.lastGuardTarget);
+  }
+
+  // 狼人 / 白狼王：历轮袭击目标
+  if (info.wolfAttacks) {
+    ctx.privateFacts.wolfAttacks = info.wolfAttacks.map(a => ({
+      round: a.round,
+      targetSeat: getSeatNumber(state, a.target),
+    }));
+  }
+
+  // 猎人 / 骑士 / 白痴：技能是否仍可用
+  if (info.hunterCanShoot !== undefined) ctx.privateFacts.hunterCanShoot = info.hunterCanShoot;
+  if (info.knightDuelUsed !== undefined) ctx.privateFacts.knightDuelUsed = info.knightDuelUsed;
+  if (info.foolImmunityUsed !== undefined) ctx.privateFacts.foolImmunityUsed = info.foolImmunityUsed;
 }
 
 /**

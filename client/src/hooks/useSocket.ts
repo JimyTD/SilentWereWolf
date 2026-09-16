@@ -87,12 +87,12 @@ export function useSocket() {
       useGameStore.getState().setNightAction(data);
     });
 
-    socket.on('server:wolfVoteUpdate', (data) => {
-      useGameStore.getState().setWolfVotes(data.votes);
+    socket.on('server:privateInfo', (data) => {
+      useGameStore.getState().setPrivateInfo(data);
     });
 
-    socket.on('server:witchInfo', (data) => {
-      useGameStore.getState().setWitchInfo(data.victim);
+    socket.on('server:wolfVoteUpdate', (data) => {
+      useGameStore.getState().setWolfVotes(data.votes);
     });
 
     socket.on('server:investigateResult', (data) => {

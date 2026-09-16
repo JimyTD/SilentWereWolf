@@ -102,6 +102,60 @@ export interface DeathRecord {
   relics: PlayerItem[];
 }
 
+// ========== 玩家私有信息（按角色裁剪后下发给本人） ==========
+
+export interface PotionRecord {
+  round: number;
+  potion: 'antidote' | 'poison';
+  target: string | null; // userId（解药救人时的被袭击者，可能为 null）
+}
+
+export interface GuardRecord {
+  round: number;
+  target: string; // userId
+}
+
+export interface WolfAttackRecord {
+  round: number;
+  target: string; // userId
+}
+
+export interface InvestigationRecord {
+  round: number;
+  kind: 'seer' | 'gravedigger';
+  target: string; // userId
+  faction: Faction;
+}
+
+/**
+ * 玩家本人的角色资源与操作历史。
+ * 只包含该玩家有权看到的私有信息，绝不包含他人私有信息。
+ * 开局、阶段切换、夜晚行动提交与重连时由服务端下发，AI 上下文也复用同一份构建逻辑。
+ */
+export interface MyPrivateInfo {
+  // 女巫：药水剩余情况与用药历史
+  witch?: {
+    antidoteUsed: boolean;
+    poisonUsed: boolean;
+    potionHistory: PotionRecord[];
+  };
+  // 守卫：上一轮守护目标（不可连守）与守护历史
+  guard?: {
+    lastGuardTarget: string | null;
+    history: GuardRecord[];
+  };
+  // 预言家/守墓人：查验历史
+  investigations?: InvestigationRecord[];
+  // 狼人/白狼王：历轮袭击目标
+  wolfAttacks?: WolfAttackRecord[];
+  // 猎人：当前是否还能开枪
+  hunterCanShoot?: boolean;
+  // 骑士：是否已发动过决斗
+  knightDuelUsed?: boolean;
+  // 白痴：免疫是否已消耗
+  foolImmunityUsed?: boolean;
+}
+
 // ========== 游戏状态（服务端完整状态） ==========
 export interface GameState {
   roomId: string;

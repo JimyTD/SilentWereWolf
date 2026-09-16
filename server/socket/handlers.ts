@@ -3,7 +3,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from '../../shared/ty
 import type { RoomManager } from '../rooms/RoomManager';
 import type { GameManager } from '../game/GameManager';
 import type { PlayerMarks, VoteRecord, DeathRecord } from '../../shared/types/game';
-import { ROLE_FACTION, ROLES } from '../../shared/constants';
+import { ROLE_FACTION, ROLES, isNightDeathCause, toPublicDeathCause } from '../../shared/constants';
 import {
   decideNightAction,
   decideMarking,
@@ -14,6 +14,7 @@ import {
   fallbackVote,
 } from '../game/ai/AIPlayerController';
 import { flushLogs, logGameEvent } from '../game/ai/AILogger';
+import { buildMyPrivateInfo } from '../../shared/privateInfo';
 import { testAIConnection } from '../game/ai/AIApiClient';
 
 type IOServer = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -127,6 +128,7 @@ export function registerSocketHandlers(
               votes: state.history.votes,
               announcements,
               investigations,
+              myPrivateInfo: buildMyPrivateInfo(state, player),
             },
           });
 
@@ -318,6 +320,7 @@ export function registerSocketHandlers(
           settings: room.settings,
           phase: state.phase,
           round: state.round,
+          myPrivateInfo: buildMyPrivateInfo(state, gamePlayer),
         });
       }
 
@@ -340,7 +343,13 @@ export function registerSocketHandlers(
       const gm = roomManager.getGameManager(user.roomId);
       if (!gm) return;
       logHumanAction(user.roomId, userId, nickname, 'nightAction', data, gm.getState().round);
-      gm.handleNightAction(userId, data, data.actionId);
+      const accepted = gm.handleNightAction(userId, data, data.actionId);
+      // 行动被接受后立即刷新该玩家的私有记录（如女巫用药、守卫守护）
+      if (accepted) {
+        const state = gm.getState();
+        const player = state.players.find(p => p.userId === userId);
+        if (player) socket.emit('server:privateInfo', buildMyPrivateInfo(state, player));
+      }
     } catch (err) {
       console.error('[client:nightAction] 错误:', err);
     }
@@ -482,10 +491,12 @@ function rebuildAnnouncements(state: import('../../shared/types/game').GameState
       deathsByRound.set(death.round, { night: [], exile: [] });
     }
     const group = deathsByRound.get(death.round)!;
-    if (death.cause === 'exiled') {
-      group.exile.push(death);
-    } else {
+    // 夜间出局（被袭击/被毒杀/同守同救）归入夜晚公告；
+    // 其余（放逐、猎人开枪、白狼王带走、决斗、认输）都是白天发生的公开事件
+    if (isNightDeathCause(death.cause)) {
       group.night.push(death);
+    } else {
+      group.exile.push(death);
     }
   }
 
@@ -501,7 +512,7 @@ function rebuildAnnouncements(state: import('../../shared/types/game').GameState
         deaths: group.night.map(d => ({
           userId: d.userId,
           seatNumber: d.seatNumber,
-          cause: d.cause,
+          cause: toPublicDeathCause(d.cause),
           relics: d.relics,
         })),
         peacefulNight: false,
@@ -515,7 +526,7 @@ function rebuildAnnouncements(state: import('../../shared/types/game').GameState
         deaths: [{
           userId: exile.userId,
           seatNumber: exile.seatNumber,
-          cause: exile.cause,
+          cause: toPublicDeathCause(exile.cause),
           relics: exile.relics,
         }],
         peacefulNight: false,
@@ -603,6 +614,14 @@ function bindGameCallbacks(
       phase: state.phase,
       round: state.round,
     });
+
+    // 阶段切换时刷新每位真人玩家的私有记录（药水、守护、袭击、技能状态等）
+    for (const player of state.players) {
+      if (roomManager.isAI(player.userId)) continue;
+      const user = roomManager.getUser(player.userId);
+      if (!user) continue;
+      io.to(user.socketId).emit('server:privateInfo', buildMyPrivateInfo(state, player));
+    }
   };
 
   gm.onNightActionPrompt = (targetUserId, roleName, targets, witchInfo, actionId) => {
@@ -666,7 +685,8 @@ function bindGameCallbacks(
       deaths: deaths.map(d => ({
         userId: d.userId,
         seatNumber: d.seatNumber,
-        cause: d.cause,
+        // 夜间出局不公开具体死因（毒杀 / 同守同救属于女巫、守卫的私有信息）
+        cause: toPublicDeathCause(d.cause),
         relics: d.relics,
       })),
       peacefulNight,

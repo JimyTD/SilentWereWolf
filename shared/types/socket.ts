@@ -11,6 +11,7 @@ import type {
   DeathRecord,
   PlayerItem,
   NightActions,
+  MyPrivateInfo,
 } from './game';
 
 // ========== 客户端 → 服务端 事件 ==========
@@ -43,8 +44,8 @@ export interface ServerToClientEvents {
   'server:kicked': (data: { reason: string }) => void;
   'server:gameStart': (data: GameStartData) => void;
   'server:phaseChange': (data: PhaseChangeData) => void;
+  'server:privateInfo': (data: MyPrivateInfo) => void;
   'server:nightAction': (data: NightActionPrompt) => void;
-  'server:witchInfo': (data: { victim: string | null }) => void;
   'server:wolfVoteUpdate': (data: { votes: Record<string, string>; actionId?: string }) => void;
   'server:investigateResult': (data: { target: string; faction: Faction }) => void;
   'server:autopsyResult': (data: { target: string; faction: Faction }) => void;
@@ -101,6 +102,8 @@ export interface GameStartData {
   settings: GameSettings;
   phase: Phase;
   round: number;
+  // 我的角色资源与操作历史（按角色裁剪）
+  myPrivateInfo: MyPrivateInfo;
 }
 
 export interface PublicPlayerInfo {
@@ -207,4 +210,6 @@ export interface ClientGameState {
   announcements: DayAnnouncementData[];
   // 重连恢复用：查验历史（预言家/守墓人）
   investigations?: { target: string; faction: Faction }[];
+  // 重连恢复用：我的角色资源与操作历史（按角色裁剪）
+  myPrivateInfo?: MyPrivateInfo;
 }

@@ -1,10 +1,24 @@
 import { useState } from 'react';
 import { useGameStore } from '../stores/gameStore';
-import type { EvaluationMark } from '@shared/types/game';
+import type { EvaluationMark, MyPrivateInfo } from '@shared/types/game';
+import type { PublicPlayerInfo } from '@shared/types/socket';
 import { getPlayerLabel } from './playerLabel';
 import { getEvaluationColor, getIdentityColor } from './identityColor';
 
-type Tab = 'announcements' | 'marks' | 'votes' | 'investigations';
+type Tab = 'announcements' | 'marks' | 'votes' | 'investigations' | 'records';
+
+// 仅用于白天公开事件（放逐、猎人开枪、白狼王、决斗、认输）
+const DEATH_CAUSE_LABELS: Record<string, string> = {
+  exiled: '放逐',
+  shot: '猎人射杀',
+  wolfKingDrag: '白狼王带走',
+  duel: '决斗',
+  resigned: '认输',
+};
+
+function deathCauseLabel(cause: string): string {
+  return DEATH_CAUSE_LABELS[cause] || cause;
+}
 
 const REASON_LABELS: Record<string, string> = {
   intuition: '直觉判断',
@@ -27,11 +41,13 @@ export default function InfoPanel() {
   const investigations = useGameStore(s => s.investigations);
   const myRole = useGameStore(s => s.myRole);
   const players = useGameStore(s => s.players);
+  const myPrivateInfo = useGameStore(s => s.myPrivateInfo);
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'announcements', label: '公告' },
     { key: 'marks', label: '标记' },
     { key: 'votes', label: '投票' },
+    { key: 'records', label: '记录' },
   ];
 
   // 预言家/守墓人可看查验记录
@@ -83,9 +99,12 @@ export default function InfoPanel() {
                           <span className="text-red-400 font-medium">
                             {getPlayerLabel(d.userId, players)} 出局
                           </span>
-                          <span className="text-gray-600 text-xs">
-                            {d.cause === 'exiled' ? '(放逐)' : d.cause === 'attacked' ? '(夜杀)' : d.cause === 'poisoned' ? '(毒杀)' : d.cause === 'shot' ? '(猎人射杀)' : d.cause === 'wolfKingDrag' ? '(白狼王带走)' : d.cause === 'duel' ? '(决斗)' : d.cause === 'guardWitchClash' ? '(同守同救)' : `(${d.cause})`}
-                          </span>
+                          {/* 夜间出局不显示死因，避免泄露女巫用药/守卫守护 */}
+                          {a.type === 'exile' && (
+                            <span className="text-gray-600 text-xs">
+                              ({deathCauseLabel(d.cause)})
+                            </span>
+                          )}
                         </div>
                         {d.relics.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1 ml-2">
@@ -178,7 +197,9 @@ export default function InfoPanel() {
             {investigations.length === 0 && <p className="text-gray-500 text-sm">暂无查验记录</p>}
             {investigations.map((inv, i) => (
               <div key={i} className="text-sm flex items-center gap-2">
-                <span className="text-gray-300">目标:</span>
+                <span className="text-gray-500 text-xs w-5 flex-shrink-0">{i + 1}.</span>
+                <span className="text-gray-300">{getPlayerLabel(inv.target, players)}</span>
+                <span className="text-gray-600">→</span>
                 <span className={inv.faction === 'good' ? 'text-blue-400' : 'text-red-400'}>
                   {inv.faction === 'good' ? '好人' : '狼人'}
                 </span>
@@ -186,7 +207,156 @@ export default function InfoPanel() {
             ))}
           </div>
         )}
+
+        {activeTab === 'records' && (
+          <MyRecords info={myPrivateInfo} players={players} />
+        )}
       </div>
+    </div>
+  );
+}
+
+interface MyRecordsProps {
+  info: MyPrivateInfo | null;
+  players: PublicPlayerInfo[];
+}
+
+/**
+ * 我的记录：展示本人角色的私有资源与操作历史（服务端按角色裁剪后下发）。
+ * 这些信息不属于公开信息，只对本人可见。
+ */
+function MyRecords({ info, players }: MyRecordsProps) {
+  if (!info) {
+    return <p className="text-gray-500 text-sm">暂无记录</p>;
+  }
+
+  const targetLabel = (userId: string | null) =>
+    userId ? getPlayerLabel(userId, players) : '未指定';
+
+  const roundTag = (round: number) => (
+    <span className="text-xs bg-gray-600 text-gray-300 px-1.5 py-0.5 rounded">R{round}</span>
+  );
+
+  const hasAny = Boolean(
+    info.witch
+    || info.guard
+    || info.investigations
+    || info.wolfAttacks
+    || info.hunterCanShoot !== undefined
+    || info.knightDuelUsed !== undefined
+    || info.foolImmunityUsed !== undefined,
+  );
+
+  if (!hasAny) {
+    return <p className="text-gray-500 text-sm">你的角色没有需要记录的私有操作</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* 女巫：药水剩余与用药历史 */}
+      {info.witch && (
+        <div className="border border-gray-700 rounded-lg p-3 bg-gray-800/50">
+          <div className="text-sm text-purple-300 font-medium mb-2">女巫 · 药水</div>
+          <div className="flex flex-wrap gap-2 mb-2">
+            <span className={`text-xs px-2 py-0.5 rounded ${
+              info.witch.antidoteUsed ? 'bg-gray-700 text-gray-500' : 'bg-green-500/20 text-green-300'
+            }`}>
+              {info.witch.antidoteUsed ? '解药已用完' : '解药未使用'}
+            </span>
+            <span className={`text-xs px-2 py-0.5 rounded ${
+              info.witch.poisonUsed ? 'bg-gray-700 text-gray-500' : 'bg-purple-500/20 text-purple-300'
+            }`}>
+              {info.witch.poisonUsed ? '毒药已用完' : '毒药未使用'}
+            </span>
+          </div>
+          {info.witch.potionHistory.length === 0 ? (
+            <p className="text-gray-500 text-xs">暂无用药记录</p>
+          ) : (
+            <div className="space-y-1">
+              {info.witch.potionHistory.map((p, i) => (
+                <div key={i} className="text-sm flex items-center gap-2">
+                  {roundTag(p.round)}
+                  <span className="text-gray-400">{p.potion === 'antidote' ? '使用解药救' : '使用毒药毒'}</span>
+                  <span className="text-gray-200">{targetLabel(p.target)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 守卫：最近守护目标与守护历史 */}
+      {info.guard && (
+        <div className="border border-gray-700 rounded-lg p-3 bg-gray-800/50">
+          <div className="text-sm text-blue-300 font-medium mb-2">守卫 · 守护</div>
+          <div className="text-sm text-gray-400 mb-2">
+            最近守护：<span className="text-gray-200">{targetLabel(info.guard.lastGuardTarget)}</span>
+            <span className="text-gray-600 text-xs ml-1">（不可连续守护同一人）</span>
+          </div>
+          {info.guard.history.length === 0 ? (
+            <p className="text-gray-500 text-xs">暂无守护记录</p>
+          ) : (
+            <div className="space-y-1">
+              {info.guard.history.map((g, i) => (
+                <div key={i} className="text-sm flex items-center gap-2">
+                  {roundTag(g.round)}
+                  <span className="text-gray-400">守护</span>
+                  <span className="text-gray-200">{targetLabel(g.target)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 狼人 / 白狼王：历轮袭击目标 */}
+      {info.wolfAttacks && (
+        <div className="border border-gray-700 rounded-lg p-3 bg-gray-800/50">
+          <div className="text-sm text-red-300 font-medium mb-2">狼人 · 袭击</div>
+          {info.wolfAttacks.length === 0 ? (
+            <p className="text-gray-500 text-xs">暂无袭击记录</p>
+          ) : (
+            <div className="space-y-1">
+              {info.wolfAttacks.map((a, i) => (
+                <div key={i} className="text-sm flex items-center gap-2">
+                  {roundTag(a.round)}
+                  <span className="text-gray-400">袭击</span>
+                  <span className="text-gray-200">{targetLabel(a.target)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 猎人 / 骑士 / 白痴：技能是否仍可用 */}
+      {(info.hunterCanShoot !== undefined
+        || info.knightDuelUsed !== undefined
+        || info.foolImmunityUsed !== undefined) && (
+        <div className="border border-gray-700 rounded-lg p-3 bg-gray-800/50 space-y-1">
+          <div className="text-sm text-yellow-300 font-medium mb-1">技能状态</div>
+          {info.hunterCanShoot !== undefined && (
+            <div className="text-sm text-gray-300">
+              猎人：{info.hunterCanShoot ? '仍可开枪' : '已无法开枪'}
+            </div>
+          )}
+          {info.knightDuelUsed !== undefined && (
+            <div className="text-sm text-gray-300">
+              骑士：{info.knightDuelUsed ? '决斗已发动' : '决斗未发动'}
+            </div>
+          )}
+          {info.foolImmunityUsed !== undefined && (
+            <div className="text-sm text-gray-300">
+              白痴：{info.foolImmunityUsed ? '免疫已消耗' : '免疫未消耗'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 预言家/守墓人的查验历史在「查验」页 */}
+      {info.investigations && (
+        <p className="text-gray-500 text-xs">查验历史请查看「查验」页</p>
+      )}
     </div>
   );
 }

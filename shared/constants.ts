@@ -272,6 +272,25 @@ export const DEATH_CAUSE = {
   RESIGNED: 'resigned',
 } as const;
 
+/**
+ * 该死因是否属于"夜间出局"。
+ * 夜间出局的具体死因（毒药、同守同救）属于女巫/守卫的私有信息，不对外公开。
+ */
+export function isNightDeathCause(cause: string): boolean {
+  return cause === DEATH_CAUSE.ATTACKED
+    || cause === DEATH_CAUSE.POISONED
+    || cause === DEATH_CAUSE.GUARD_WITCH_CLASH;
+}
+
+/**
+ * 对外公开的死因：夜间出局统一显示为被袭击。
+ * 避免通过死因泄露女巫是否用药、守卫是否触发同守同救。
+ * 注意：仅用于对外广播与 AI 公开信息，结算复盘日志仍使用真实死因。
+ */
+export function toPublicDeathCause(cause: string): string {
+  return isNightDeathCause(cause) ? DEATH_CAUSE.ATTACKED : cause;
+}
+
 // 默认计时器（秒）
 export const DEFAULT_TIMERS = {
   MARKING: 60,

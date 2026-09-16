@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Phase, Faction, PlayerMarks, VoteRecord } from '@shared/types/game';
+import type { Phase, Faction, PlayerMarks, VoteRecord, MyPrivateInfo } from '@shared/types/game';
 import type {
   GameStartData,
   PublicPlayerInfo,
@@ -36,9 +36,11 @@ interface GameStoreState {
 
   // 夜晚操作
   nightAction: NightActionPrompt | null;
-  witchVictim: string | null;
   investigations: { target: string; faction: Faction }[];
   wolfVotes: Record<string, string>; // 狼人队友投票情况
+
+  // 我的私有信息（角色资源与操作历史，服务端按角色裁剪后下发）
+  myPrivateInfo: MyPrivateInfo | null;
 
   // 白天公告
   announcements: DayAnnouncementData[];
@@ -64,8 +66,8 @@ interface GameStoreState {
   setFromReconnect: (data: ClientGameState) => void;
   setPhase: (phase: Phase, round: number) => void;
   setNightAction: (data: NightActionPrompt) => void;
+  setPrivateInfo: (info: MyPrivateInfo) => void;
   setWolfVotes: (votes: Record<string, string>) => void;
-  setWitchInfo: (victim: string | null) => void;
   addInvestigation: (target: string, faction: Faction) => void;
   addAnnouncement: (data: DayAnnouncementData) => void;
   setMarkingTurn: (data: MarkingTurnData) => void;
@@ -99,8 +101,8 @@ const initialState = {
   phase: null,
   round: 0,
   nightAction: null,
-  witchVictim: null,
   investigations: [],
+  myPrivateInfo: null,
   wolfVotes: {},
   announcements: [],
   markingTurn: null,
@@ -127,8 +129,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
       phase: data.phase,
       round: data.round,
       nightAction: null,
-      witchVictim: null,
       investigations: [],
+      myPrivateInfo: data.myPrivateInfo ?? null,
       wolfVotes: {},
       announcements: [],
       marks: [],
@@ -154,6 +156,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       marks: data.marks,
       announcements: data.announcements,
       investigations: data.investigations || [],
+      myPrivateInfo: data.myPrivateInfo ?? null,
       // 实时操作状态将由后续的事件重新推送（server:markingTurn / server:votingStart / server:nightAction 等）
       // 这里先重置为初始状态，等待事件到来
       nightAction: null,
@@ -178,8 +181,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
     }),
 
   setNightAction: (data) => set({ nightAction: data }),
+  setPrivateInfo: (info) => set({ myPrivateInfo: info }),
   setWolfVotes: (votes) => set({ wolfVotes: votes }),
-  setWitchInfo: (victim) => set({ witchVictim: victim }),
 
   addInvestigation: (target, faction) =>
     set((state) => ({
