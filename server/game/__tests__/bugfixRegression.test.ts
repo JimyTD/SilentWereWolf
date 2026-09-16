@@ -132,6 +132,47 @@ describe('屠边模式的板子校验与胜负判定', () => {
   });
 });
 
+describe('胜负判定的优先级与口径', () => {
+  it('屠边模式下好人全灭（神职与平民同轮全灭）判狼人胜', () => {
+    const state = createState([
+      createPlayer('player1', ROLES.WEREWOLF),
+      createPlayer('player2', ROLES.SEER, false),
+      createPlayer('player3', ROLES.VILLAGER, false),
+    ]);
+
+    expect(checkWinCondition(state, 'edge')).toEqual({
+      winner: FACTIONS.EVIL,
+      reason: 'good_eliminated',
+    });
+  });
+
+  it('屠城模式下好人全灭判狼人胜', () => {
+    const state = createState([
+      createPlayer('player1', ROLES.WEREWOLF),
+      createPlayer('player2', ROLES.SEER, false),
+      createPlayer('player3', ROLES.VILLAGER, false),
+    ]);
+
+    expect(checkWinCondition(state, 'city')).toEqual({
+      winner: FACTIONS.EVIL,
+      reason: 'good_eliminated',
+    });
+  });
+
+  it('同轮双方全灭时好人优先', () => {
+    const state = createState([
+      createPlayer('player1', ROLES.WEREWOLF, false),
+      createPlayer('player2', ROLES.SEER, false),
+      createPlayer('player3', ROLES.VILLAGER),
+    ]);
+
+    expect(checkWinCondition(state, 'edge')).toEqual({
+      winner: FACTIONS.GOOD,
+      reason: 'wolves_eliminated',
+    });
+  });
+});
+
 describe('夜晚结算死亡记录', () => {
   it('同守同救只产生一条死亡记录', () => {
     const victim = createPlayer('player2', ROLES.VILLAGER);

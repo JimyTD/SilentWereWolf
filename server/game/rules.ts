@@ -11,6 +11,11 @@ export interface WinResult {
  * 胜负判定
  * @param winCondition 'edge' = 屠边（杀光神职或平民），'city' = 屠城（杀光所有好人）
  * 返回 WinResult | null（游戏继续）
+ *
+ * 判定顺序（与移植版保持一致，改动前请先对齐）：
+ * 1. 所有狼人出局 → 好人胜（若同夜双方全灭，好人优先）
+ * 2. 所有好人出局 → 狼人胜（屠边与屠城都成立）
+ * 3. 屠边专属：板子里存在的某一类好人全灭（神职全灭 / 平民全灭）
  */
 export function checkWinCondition(gameState: GameState, winCondition: WinCondition = 'edge'): WinResult | null {
   const alivePlayers = gameState.players.filter(p => p.alive);
@@ -20,22 +25,24 @@ export function checkWinCondition(gameState: GameState, winCondition: WinConditi
   // 好人胜：所有狼人出局
   if (aliveWolves.length === 0) return { winner: FACTIONS.GOOD, reason: 'wolves_eliminated' };
 
-  if (winCondition === 'city') {
-    // 屠城：所有好人出局
-    if (aliveGood.length === 0) return { winner: FACTIONS.EVIL, reason: 'good_eliminated' };
-  } else {
-    // 屠边：所有神职出局 或 所有平民出局
-    // 注意：只有在板子里确实存在该类角色时，"该类全灭"才是有效判据。
-    // 否则（例如自定义板子里一个神职都没有）开局就会误判为"神职被淘汰"。
+  // 狼人胜：所有好人出局。
+  // 单独判定是必要的：当神职与平民在同一轮内全灭时，下面两个屠边条件都不成立
+  // （此时已经没有存活好人），若不在这里判负，游戏会卡在只剩狼人的局面上。
+  if (aliveGood.length === 0) return { winner: FACTIONS.EVIL, reason: 'good_eliminated' };
+
+  // 屠边：所有神职出局 或 所有平民出局
+  // 注意：只有当板子里确实存在该类角色时，"该类全灭"才是有效判据；
+  // 否则（例如自定义板子里一个神职都没有）开局就会误判为"神职被淘汰"。
+  if (winCondition !== 'city') {
     const boardVillagers = gameState.players.filter(p => p.role === ROLES.VILLAGER);
     const boardSpecials = gameState.players.filter(p => SPECIAL_ROLES.has(p.role as string));
     const aliveVillagers = alivePlayers.filter(p => p.role === ROLES.VILLAGER);
     const aliveSpecials = aliveGood.filter(p => SPECIAL_ROLES.has(p.role as string));
 
-    if (boardSpecials.length > 0 && aliveSpecials.length === 0 && aliveGood.length > 0) {
+    if (boardSpecials.length > 0 && aliveSpecials.length === 0) {
       return { winner: FACTIONS.EVIL, reason: 'specials_eliminated' };
     }
-    if (boardVillagers.length > 0 && aliveVillagers.length === 0 && aliveGood.length > 0) {
+    if (boardVillagers.length > 0 && aliveVillagers.length === 0) {
       return { winner: FACTIONS.EVIL, reason: 'villagers_eliminated' };
     }
   }
