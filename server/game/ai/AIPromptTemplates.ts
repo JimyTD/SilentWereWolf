@@ -271,23 +271,23 @@ export function getNightActionPrompt(params: NightActionPromptParams): string {
     }
 
     case ROLES.GUARD:
-      return `现在是夜晚，轮到你选择守护目标。你不能连续两夜守护同一个人。
+      return `现在是夜晚，轮到你选择守护目标（必须选择一名目标）。你不能连续两夜守护同一个人。
 可选目标：${targetList}
-你也可以选择不守护任何人。
 
 请先分析谁最可能被刀（谁最有价值？狼人最想杀谁？），然后选择守护目标。
 返回 JSON：
-- 守护某人：{"analysis": "分析过程", "target": 6}
-- 不守护：{"analysis": "分析过程", "target": null}`;
+{"analysis": "分析过程", "target": 6}`;
 
-    case ROLES.GRAVEDIGGER:
+    case ROLES.GRAVEDIGGER: {
+      // 只有场上没有任何可查验的死者时才允许跳过，其余情况必须给出目标
+      const canSkip = availableTargets.length === 0;
       return `现在是夜晚，轮到你验尸。你可以查看一名已死亡玩家的阵营。
 可选目标：${targetList}
 
 请先分析验哪个死者最有价值（确认谁的阵营对推理帮助最大？），然后选择。
 返回 JSON：
-{"analysis": "分析过程", "target": 6}
-或不验尸：{"analysis": "分析过程", "target": null}`;
+{"analysis": "分析过程", "target": 6}${canSkip ? '\n当前没有可查验的死者，你也可以返回：{"analysis": "无可查验的死者", "target": null}' : ''}`;
+    }
 
     default:
       return `现在是夜晚，你没有需要操作的行动。请返回：{"action": "skip"}`;

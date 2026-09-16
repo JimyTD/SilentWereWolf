@@ -37,7 +37,7 @@ const DELAY_RANGES: Record<string, [number, number]> = {
   trigger: [2000, 5000],
 };
 
-function getRandomDelay(type: string, maxTimeout?: number, persona?: AIPersona): number {
+function getRandomDelay(type: string, persona?: AIPersona): number {
   const [min, max] = DELAY_RANGES[type] || [2000, 5000];
 
   // 基础延迟：改用偏向短耗时的分布（两次随机取小值），
@@ -60,10 +60,6 @@ function getRandomDelay(type: string, maxTimeout?: number, persona?: AIPersona):
 
   delay = Math.max(800, Math.floor(delay));
 
-  // 不超过阶段计时器上限的 80%
-  if (maxTimeout) {
-    return Math.min(delay, maxTimeout * 800);
-  }
   return delay;
 }
 
@@ -135,10 +131,10 @@ function isValidTarget(target: unknown, validTargets: string[]): target is strin
 
 type TargetDetail = { userId: string; nickname: string; seatNumber: number };
 
-function targetUserIdFromSeat(target: unknown, targets: TargetDetail[]): string | undefined {
+export function targetUserIdFromSeat(target: unknown, targets: TargetDetail[]): string | undefined {
   const seatNumber = typeof target === 'number'
     ? target
-    : typeof target === 'string' && /^\\d+$/.test(target)
+    : typeof target === 'string' && /^\d+$/.test(target)
       ? Number(target)
       : NaN;
   if (!Number.isInteger(seatNumber)) return undefined;
@@ -208,7 +204,7 @@ export async function decideNightAction(
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
   // 模拟思考延迟
-  await sleep(getRandomDelay('night', undefined, getPersona(state.roomId, aiPlayer.userId)));
+  await sleep(getRandomDelay('night', getPersona(state.roomId, aiPlayer.userId)));
 
 
   // 调用 LLM
@@ -297,22 +293,18 @@ function buildNightActionResult(role: string, parsed: Record<string, unknown>, v
     }
 
     case ROLES.GUARD:
-      if (parsed.target === null) {
-        return { action: 'guard' };
-      }
+      // 守卫是必选行动，规则层不接受无目标的守卫；无法解析有效目标时走兜底选择
       if (isValidTarget(parsed.target, validTargets)) {
         return { action: 'guard', target: parsed.target };
       }
       return fallbackNightAction(role, validTargets);
 
     case ROLES.GRAVEDIGGER:
-      if (parsed.target === null) {
-        return { action: 'autopsy' };
-      }
+      // 有死者时必须选择目标；没有可查验的死者时兜底会给出不带目标的自动跳过
       if (isValidTarget(parsed.target, validTargets)) {
         return { action: 'autopsy', target: parsed.target };
       }
-      return { action: 'autopsy' };
+      return fallbackNightAction(role, validTargets);
 
     default:
       return { action: 'skip' };
@@ -406,7 +398,7 @@ export async function decideMarking(
 
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
-  await sleep(getRandomDelay('marking', undefined, persona));
+  await sleep(getRandomDelay('marking', persona));
 
 
   let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 1000 });
@@ -737,7 +729,7 @@ export async function decideVote(
   }, persona.analysisPreference);
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
-  await sleep(getRandomDelay('voting', undefined, persona));
+  await sleep(getRandomDelay('voting', persona));
 
 
   let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 500 });
@@ -873,7 +865,7 @@ export async function decideTriggerAction(
 
   const userPrompt = `${contextText}\n\n${actionPrompt}`;
 
-  await sleep(getRandomDelay('trigger', undefined, getPersona(state.roomId, aiPlayer.userId)));
+  await sleep(getRandomDelay('trigger', getPersona(state.roomId, aiPlayer.userId)));
 
 
   const result = await callLLM({ systemPrompt, userPrompt, maxTokens: 400 });

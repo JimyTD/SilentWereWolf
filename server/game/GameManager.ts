@@ -61,7 +61,7 @@ export class GameManager {
   private collectedVotes: VoteRecord[] = [];
   private activeAction: ActiveAction | null = null;
 
-  // 鍥炶皟锛岀敱 socket handler 璁剧疆
+  // 回调，由 socket handler 设置
   public onPhaseChange?: (state: GameState) => void;
   public onNightActionPrompt?: (userId: string, roleName: string, targets: string[], witchInfo?: { victim: string | null; hasAntidote: boolean; hasPoison: boolean; canSelfSave: boolean }, actionId?: string) => void;
   public onDayAnnouncement?: (deaths: DeathRecord[], peacefulNight: boolean, round: number, type: 'night' | 'exile') => void;
@@ -73,9 +73,9 @@ export class GameManager {
   public onPlayerResigned?: (userId: string) => void;
   public onWolfVoteUpdate?: (wolfUserIds: string[], votes: Record<string, string>, actionId?: string) => void;
   public onInvestigateResult?: (userId: string, target: string, faction: 'good' | 'evil') => void;
-  // 瀹堝浜烘煡楠岀粨鏋?
+  // 守墓人查验结果
   public onAutopsyResult?: (userId: string, target: string, faction: 'good' | 'evil') => void;
-  // 瑙﹀彂閾惧洖璋?
+  // 触发链回调
   public onHunterTrigger?: (userId: string, canShoot: boolean, targets: string[], actionId?: string) => void;
   public onHunterResult?: (shooter: string, target: string | null, targetDeath: boolean) => void;
   public onWolfKingTrigger?: (userId: string, targets: string[], actionId?: string) => void;
@@ -251,12 +251,16 @@ export class GameManager {
 
     // 认输死亡：主动放弃，不触发任何技能
     player.alive = false;
+    // 与其它出局路径保持一致：死亡玩家的物品公开为遗物
+    for (const item of player.items) {
+      item.revealed = true;
+    }
     this.state.history.deaths.push({
       userId,
       seatNumber: player.seatNumber,
       cause: DEATH_CAUSE.RESIGNED,
       round: this.state.round,
-      relics: [],
+      relics: [...player.items],
     });
 
     console.log(`[认输] 房间${this.state.roomId} R${this.state.round} ${this.room.players.find(p => p.userId === userId)?.nickname || userId.slice(0, 6)} 认输出局`);
@@ -447,16 +451,16 @@ export class GameManager {
     return this.room.settings.winCondition || 'edge';
   }
 
-  // ========== 娓告垙鍒濆鍖?==========
+  // ========== 游戏初始化 ==========
 
   initializeGame(): void {
     const settings = this.room.settings;
     const roleList = getRolesFromSettings(settings);
 
-    // 闅忔満鎵撲贡瑙掕壊鍒嗛厤
+    // 随机打乱角色分配
     const shuffledRoles = this.shuffle([...roleList]);
 
-    // 闅忔満鎵撲贡搴т綅鍙?
+    // 随机打乱座位号
     const seatNumbers = this.room.players.map((_, i) => i + 1);
     const shuffledSeats = this.shuffle([...seatNumbers]);
 
@@ -466,7 +470,7 @@ export class GameManager {
       const items = this.assignItems(settings, this.room.players.length, index);
       const roleState = this.initRoleState(role);
 
-      // 鍒涘缓瑙掕壊澶勭悊鍣?
+      // 创建角色处理器
       const handler = createRole(role);
       this.roleHandlers.set(rp.userId, handler);
 
@@ -481,7 +485,7 @@ export class GameManager {
       };
     });
 
-    // 璁＄畻澶╁钩寰界珷
+    // 计算天平徽章
     this.calculateBalanceBadges(players);
 
     this.state = {
@@ -505,7 +509,7 @@ export class GameManager {
     };
   }
 
-  // ========== 澶滄櫄娴佺▼ ==========
+  // ========== 夜晚流程 ==========
 
   startNight(): void {
     this.state.phase = PHASES.NIGHT;
@@ -513,7 +517,7 @@ export class GameManager {
     this.invalidateActiveAction();
     this.onPhaseChange?.(this.state);
 
-    // 浠庣涓€涓湁澶滄櫄琛屽姩鐨勮鑹插紑濮?
+    // 从第一个有夜晚行动的角色开始
     this.processNextNightRole(0);
   }
 
@@ -521,14 +525,14 @@ export class GameManager {
     for (let i = fromIndex; i < NIGHT_ACTION_ORDER.length; i++) {
       const roleName = NIGHT_ACTION_ORDER[i];
 
-      // 鎵惧埌鎷ユ湁璇ヨ鑹蹭笖瀛樻椿鐨勭帺瀹?
+      // 找到拥有该角色且存活的玩家
       const playersWithRole = this.state.players.filter(
         p => p.alive && p.role === roleName
       );
 
       if (playersWithRole.length === 0) continue;
 
-      // 鐙间汉鐗规畩澶勭悊锛氭墍鏈夌嫾浜哄悓鏃惰鍔紙鍚櫧鐙肩帇锛?
+      // 狼人特殊处理：所有狼人同时行动（含白狼王）
       if (roleName === ROLES.WEREWOLF || roleName === (ROLES.WOLF_KING as string)) {
         const wolves = this.state.players.filter(
           p => p.alive && (p.role === ROLES.WEREWOLF || p.role === ROLES.WOLF_KING)
@@ -556,7 +560,7 @@ export class GameManager {
         continue;
       }
 
-      // 濂冲帆鐗规畩澶勭悊锛氶渶瑕侀澶栦俊鎭?
+      // 女巫特殊处理：需要额外信息
       if (roleName === ROLES.WITCH) {
         const witch = playersWithRole[0];
         const witchState = witch.roleState as WitchState;
@@ -573,7 +577,7 @@ export class GameManager {
         return;
       }
 
-      // 瀹堝浜虹壒娈婂鐞嗭細鏌ラ獙宸叉浜＄帺瀹?
+      // 守墓人特殊处理：查验已死亡玩家
       if (roleName === ROLES.GRAVEDIGGER) {
         const gd = playersWithRole[0];
         const handler = this.roleHandlers.get(gd.userId);
@@ -581,7 +585,7 @@ export class GameManager {
           const targets = handler.getAvailableTargets(this.state, gd);
           this.state.nightCurrentRole = ROLES.GRAVEDIGGER;
           if (targets.length === 0) {
-            // 鏃犳鑰呭彲鏌ワ紝鑷姩璺宠繃
+            // 无死者可查，自动跳过
             this.state.nightActions.gravedigger = { target: null };
             continue;
           }
@@ -592,7 +596,7 @@ export class GameManager {
         continue;
       }
 
-      // 閫氱敤瑙掕壊澶勭悊
+      // 通用角色处理
       const player = playersWithRole[0];
       const handler = this.roleHandlers.get(player.userId);
       if (handler && handler.hasNightAction) {
@@ -604,7 +608,7 @@ export class GameManager {
       }
     }
 
-    // 鎵€鏈夎鑹茶鍔ㄥ畬姣?鈫?缁撶畻澶滄櫄
+    // 所有角色行动完毕 → 结算夜晚
     this.resolveNightPhase();
   }
 
@@ -646,7 +650,7 @@ export class GameManager {
     if (!success) return false;
     this.markActionSubmitted(active, userId);
 
-    // 鐙间汉鎶曠エ鍚庨€氱煡闃熷弸
+    // 狼人投票后通知队友
     if (isWolf && this.state.nightActions.wolves) {
       const aliveWolves = this.state.players.filter(
         p => p.alive && (p.role === ROLES.WEREWOLF || p.role === ROLES.WOLF_KING)
@@ -655,7 +659,7 @@ export class GameManager {
       this.onWolfVoteUpdate?.(wolfIds, { ...this.state.nightActions.wolves.votes }, active.actionId);
     }
 
-    // 棰勮█瀹舵煡楠岀粨鏋滅珛鍗宠繑鍥?
+    // 预言家查验结果立即返回
     if (player.role === ROLES.SEER && action.target) {
       const target = this.state.players.find(p => p.userId === action.target);
       if (target) {
@@ -663,7 +667,7 @@ export class GameManager {
       }
     }
 
-    // 瀹堝浜烘煡楠岀粨鏋滅珛鍗宠繑鍥?
+    // 守墓人查验结果立即返回
     if (player.role === ROLES.GRAVEDIGGER && action.target) {
       const target = this.state.players.find(p => p.userId === action.target);
       if (target) {
@@ -671,20 +675,75 @@ export class GameManager {
       }
     }
 
-    // 妫€鏌ュ綋鍓嶈鑹茬粍鏄惁鍏ㄩ儴瀹屾垚
-    if (this.isCurrentRoleGroupDone()) {
-      const currentIndex = NIGHT_ACTION_ORDER.indexOf(this.state.nightCurrentRole as typeof NIGHT_ACTION_ORDER[number]);
-      // 璺宠繃鍚岀粍鐨勭嫾浜鸿鑹?
-      let nextIndex = currentIndex + 1;
-      if (this.state.nightCurrentRole === ROLES.WEREWOLF) {
-        // 璺冲埌鐙间汉涔嬪悗鐨勮鑹?
-        nextIndex = NIGHT_ACTION_ORDER.indexOf(ROLES.WITCH);
-        if (nextIndex === -1) nextIndex = currentIndex + 1;
-      }
-      this.invalidateActiveAction();
-      this.processNextNightRole(nextIndex);
-    }
+    // 检查当前角色组是否全部完成，完成则切换到下一个夜晚角色
+    this.advanceAfterNightAction();
 
+    return true;
+  }
+
+  /**
+   * 当前角色组的夜晚行动已全部提交时，切换到下一个夜晚角色。
+   * 幂等：阶段已不是夜晚或没有活跃行动时什么都不做，避免重复推进。
+   */
+  private advanceAfterNightAction(): void {
+    if (this.state.phase !== PHASES.NIGHT) return;
+    if (!this.activeAction) return;
+    if (!this.isCurrentRoleGroupDone()) return;
+
+    const currentIndex = NIGHT_ACTION_ORDER.indexOf(this.state.nightCurrentRole as typeof NIGHT_ACTION_ORDER[number]);
+    // 跳过同组的狼人角色
+    let nextIndex = currentIndex + 1;
+    if (this.state.nightCurrentRole === ROLES.WEREWOLF) {
+      // 跳到狼人之后的角色
+      nextIndex = NIGHT_ACTION_ORDER.indexOf(ROLES.WITCH);
+      if (nextIndex === -1) nextIndex = currentIndex + 1;
+    }
+    this.invalidateActiveAction();
+    this.processNextNightRole(nextIndex);
+  }
+
+  /**
+   * AI 夜晚行动的最终兜底：保证 AI 无法提交行动时阶段仍能推进，不会让整局卡死。
+   * 1) 先尝试与断线真人相同的确定性兜底动作；
+   * 2) 若兜底动作也被规则拒绝，则把该玩家的行动按"放弃本夜行动"记录并推进阶段。
+   * @returns 行动是否已提交或阶段已推进
+   */
+  forceNightActionFallback(userId: string, actionId?: string): boolean {
+    const active = this.activeAction;
+    if (!active || active.actionType !== 'night') return true;
+    if (actionId && active.actionId !== actionId) return true;
+
+    this.submitDisconnectedFallback(userId, active.actionId);
+
+    // 提交成功：handleNightAction 内部已经完成本组行动的推进
+    if (this.activeAction !== active || active.submittedUserIds.has(userId)) return true;
+
+    // 兜底动作仍被拒绝：按"放弃本夜行动"处理，确保阶段能推进
+    console.error(
+      `[AI兜底] 房间${this.state.roomId} ${userId} 夜晚行动无法提交，按放弃行动处理(actionId=${active.actionId})`,
+    );
+    const player = this.state.players.find(p => p.userId === userId);
+    if (player) {
+      switch (player.role) {
+        case ROLES.GUARD:
+          this.state.nightActions.guard = { target: null };
+          break;
+        case ROLES.SEER:
+          this.state.nightActions.seer = { target: null };
+          break;
+        case ROLES.GRAVEDIGGER:
+          this.state.nightActions.gravedigger = { target: null };
+          break;
+        case ROLES.WITCH:
+          this.state.nightActions.witch = { action: 'none', target: null };
+          break;
+        default:
+          // 狼人组：只记录提交，本夜视为不刀人
+          break;
+      }
+    }
+    this.markActionSubmitted(active, userId);
+    this.advanceAfterNightAction();
     return true;
   }
 
@@ -723,11 +782,11 @@ export class GameManager {
     this.invalidateActiveAction();
     const deaths = resolveNight(this.state);
 
-    // 淇濆瓨鏈疆澶滄櫄琛屽姩鍒板巻鍙?
+    // 保存本轮夜晚行动到历史
     this.state.history.rounds.push({ ...this.state.nightActions });
     this.state.history.deaths.push(...deaths);
 
-    // 杩涘叆鐧藉ぉ鍏憡
+    // 进入白天公告
     this.state.phase = PHASES.DAY_ANNOUNCEMENT;
     this.state.nightCurrentRole = null;
     this.onPhaseChange?.(this.state);
@@ -739,14 +798,14 @@ export class GameManager {
     });
   }
 
-  // ========== 瑙﹀彂閾剧郴缁?==========
+  // ========== 触发链系统 ==========
 
   /**
-   * 澶勭悊姝讳骸瑙﹀彂閾?
-   * 閬嶅巻姝讳骸鍒楄〃锛屾敹闆嗘墍鏈夐渶瑕佽Е鍙戠殑浜嬩欢锛岀劧鍚庨€愪竴澶勭悊
+   * 处理死亡触发链
+   * 遍历死亡列表，收集所有需要触发的事件，然后逐一处理
    */
   private processDeathTriggers(deaths: DeathRecord[], onComplete: () => void): void {
-    // 鏀堕泦瑙﹀彂浜嬩欢
+    // 收集触发事件
     const triggers: PendingTrigger[] = [];
     for (const death of deaths) {
       const handler = this.roleHandlers.get(death.userId);
@@ -770,13 +829,13 @@ export class GameManager {
       return;
     }
 
-    // 灏嗚Е鍙戜簨浠跺姞鍏ラ槦鍒楀苟閫愪竴澶勭悊
+    // 将触发事件加入队列并逐一处理
     this.state.pendingTriggers = triggers;
     this.processNextTrigger(onComplete);
   }
 
   /**
-   * 閫愪竴澶勭悊瑙﹀彂闃熷垪涓殑浜嬩欢
+   * 逐一处理触发队列中的事件
    */
   private processNextTrigger(onComplete: () => void): void {
     if (this.state.pendingTriggers.length === 0) {
@@ -803,7 +862,7 @@ export class GameManager {
         const hunterState = player.roleState as HunterState;
         const actionId = this.beginAction('hunter_shoot', [trigger.userId], targets);
         this.onHunterTrigger?.(trigger.userId, hunterState.canShoot, targets, actionId);
-        // 瀛樺偍 onComplete 浠ヤ究 handleHunterAction 璋冪敤
+        // 存储 onComplete 以便 handleHunterAction 调用
         this._triggerOnComplete = onComplete;
         break;
       }
@@ -817,18 +876,18 @@ export class GameManager {
         break;
       }
       default:
-        // 鏈煡瑙﹀彂绫诲瀷锛岃烦杩?
+        // 未知触发类型，跳过
         this.state.pendingTriggers.shift();
         this.processNextTrigger(onComplete);
         break;
     }
   }
 
-  // 淇濆瓨瑙﹀彂閾惧畬鎴愬洖璋?
+  // 保存触发链完成回调
   private _triggerOnComplete?: () => void;
 
   /**
-   * 鐚庝汉寮€鏋搷浣?
+   * 猎人开枪操作
    */
   handleHunterAction(userId: string, action: 'shoot' | 'skip', target?: string, actionId?: string): boolean {
     if (this.state.pendingTriggers.length === 0) return false;
@@ -844,7 +903,7 @@ export class GameManager {
     this.markActionSubmitted(active, userId);
     this.invalidateActiveAction();
 
-    // 鏍囪宸茬敤
+    // 标记已用
     const hunterState = hunter.roleState as HunterState;
     hunterState.canShoot = false;
 
@@ -853,7 +912,7 @@ export class GameManager {
     if (action === 'shoot' && target) {
       const victim = this.state.players.find(p => p.userId === target && p.alive);
       if (victim) {
-        // 鍑绘潃鐩爣
+        // 击杀目标
         victim.alive = false;
         for (const item of victim.items) {
           item.revealed = true;
@@ -869,10 +928,10 @@ export class GameManager {
 
         this.onHunterResult?.(userId, target, true);
 
-        // 骞挎挱鐚庝汉寮€鏋鑷寸殑姝讳骸鍏憡
+        // 广播猎人开枪导致的死亡公告
         this.onDayAnnouncement?.([deathRecord], false, this.state.round, 'exile');
 
-        // 琚寧浜哄皠鏉€鐨勪汉涔熷彲鑳借Е鍙戯紙濡傜寧浜哄皠鏉€浜嗗彟涓€涓寧浜?.. 铏界劧涓嶅お鍙兘锛?
+        // 被猎人射杀的人也可能触发（如猎人射杀了另一个猎人）... 虽然不太可能
         const newTriggers: PendingTrigger[] = [];
         const victimHandler = this.roleHandlers.get(victim.userId);
         if (victimHandler) {
@@ -885,7 +944,7 @@ export class GameManager {
             });
           }
         }
-        // 灏嗘柊瑙﹀彂浜嬩欢鎻掑叆闃熷垪澶撮儴
+        // 将新触发事件插入队列头部
         this.state.pendingTriggers = [...newTriggers, ...this.state.pendingTriggers];
       } else {
         this.onHunterResult?.(userId, null, false);
@@ -894,7 +953,7 @@ export class GameManager {
       this.onHunterResult?.(userId, null, false);
     }
 
-    // 缁х画澶勭悊瑙﹀彂闃熷垪
+    // 继续处理触发队列
     const onComplete = this._triggerOnComplete;
     this._triggerOnComplete = undefined;
     if (onComplete) {
@@ -905,7 +964,7 @@ export class GameManager {
   }
 
   /**
-   * 鐧界嫾鐜嬪甫浜烘搷浣?
+   * 白狼王带人操作
    */
   handleWolfKingAction(userId: string, action: 'drag' | 'skip', target?: string, actionId?: string): boolean {
     if (this.state.pendingTriggers.length === 0) return false;
@@ -922,7 +981,7 @@ export class GameManager {
     if (action === 'drag' && target) {
       const victim = this.state.players.find(p => p.userId === target && p.alive);
       if (victim) {
-        // 甯﹁蛋鐩爣
+        // 带走目标
         victim.alive = false;
         for (const item of victim.items) {
           item.revealed = true;
@@ -938,10 +997,10 @@ export class GameManager {
 
         this.onWolfKingResult?.(userId, target);
 
-        // 骞挎挱甯︿汉姝讳骸鍏憡
+        // 广播带人死亡公告
         this.onDayAnnouncement?.([deathRecord], false, this.state.round, 'exile');
 
-        // 琚甫璧扮殑浜轰篃鍙兘瑙﹀彂寮€鏋紙濡傝甯﹁蛋鐨勬槸鐚庝汉锛?
+        // 被带走的人也可能触发开枪（如被带走的是猎人）
         const newTriggers: PendingTrigger[] = [];
         const victimHandler = this.roleHandlers.get(victim.userId);
         if (victimHandler) {
@@ -962,7 +1021,7 @@ export class GameManager {
       this.onWolfKingResult?.(userId, null);
     }
 
-    // 缁х画澶勭悊瑙﹀彂闃熷垪
+    // 继续处理触发队列
     const onComplete = this._triggerOnComplete;
     this._triggerOnComplete = undefined;
     if (onComplete) {
@@ -972,10 +1031,10 @@ export class GameManager {
     return true;
   }
 
-  // ========== 楠戝＋鍐虫枟 ==========
+  // ========== 骑士决斗 ==========
 
   /**
-   * 妫€鏌ユ槸鍚︽湁楠戝＋鍙互鍐虫枟锛堝鏅氭浜″叕鍛婂悗銆佹爣璁板彂瑷€鍓嶏級
+   * 检查是否有骑士可以决斗（夜晚死亡公告后、标记发言前）
    */
   private checkKnightDuel(): void {
     const knight = this.state.players.find(
@@ -985,7 +1044,7 @@ export class GameManager {
     if (knight) {
       const knightState = knight.roleState as KnightState;
       if (!knightState.duelUsed) {
-        // 楠戝＋瀛樻椿涓旀湭浣跨敤鍐虫枟锛岃繘鍏ュ喅鏂楅樁娈?
+        // 骑士存活且未使用决斗，进入决斗阶段
         this.state.phase = PHASES.DAY_KNIGHT;
         this.onPhaseChange?.(this.state);
 
@@ -999,12 +1058,12 @@ export class GameManager {
       }
     }
 
-    // 娌℃湁楠戝＋鎴栧凡鐢ㄨ繃鍐虫枟 鈫?鐩存帴杩涘叆鏍囪鍙戣█
+    // 没有骑士或已用过决斗 → 直接进入标记发言
     this.startMarkingPhase();
   }
 
   /**
-   * 楠戝＋鍐虫枟鎿嶄綔
+   * 骑士决斗操作
    */
   handleKnightAction(userId: string, action: 'duel' | 'skip', target?: string, actionId?: string): boolean {
     if (this.state.phase !== PHASES.DAY_KNIGHT) return false;
@@ -1028,12 +1087,12 @@ export class GameManager {
     if (action === 'duel' && target) {
       const targetPlayer = this.state.players.find(p => p.userId === target && p.alive);
       if (!targetPlayer) {
-        // 鏃犳晥鐩爣锛岃烦杩?
+        // 无效目标，跳过
         this.startMarkingPhase();
         return true;
       }
 
-      // 鍐虫枟鍒ゅ畾锛氬鏂规槸鐙间汉 鈫?瀵规柟姝伙紱瀵规柟鏄ソ浜?鈫?楠戝＋姝?
+      // 决斗判定：对方是狼人 → 对方死；对方是好人 → 骑士死
       const isTargetWolf = targetPlayer.faction === FACTIONS.EVIL;
       const loser = isTargetWolf ? targetPlayer : knight;
 
@@ -1053,30 +1112,30 @@ export class GameManager {
 
       this.onDuelResult?.(userId, target, loser.userId);
 
-      // 骞挎挱鍐虫枟缁撴灉鍏憡
+      // 广播决斗结果公告
       this.onDayAnnouncement?.([deathRecord], false, this.state.round, 'exile');
 
-      // 妫€鏌ヨ儨璐?
+      // 检查胜负
       // 先处理决斗造成的死亡触发，再统一检查胜负。
 
-      // 鍐虫枟瀵艰嚧鐨勬浜′篃鍙兘瑙﹀彂锛堝鍐虫枟杈撶殑涓€鏂规槸鐚庝汉鍙互寮€鏋級
+      // 决斗导致的死亡也可能触发（如决斗输的一方是猎人可以开枪）
       this.processDeathTriggers([deathRecord], () => {
         this.finishAfterDeathChain(() => this.startMarkingPhase());
       });
     } else {
-      // 涓嶅彂鍔ㄥ喅鏂?
+      // 不发动决斗
       this.startMarkingPhase();
     }
 
     return true;
   }
 
-  // ========== 鏍囪鍙戣█闃舵 ==========
+  // ========== 标记发言阶段 ==========
 
   private startMarkingPhase(): void {
     this.state.phase = PHASES.DAY_MARKING;
     this.invalidateActiveAction();
-    // 鎸夊骇浣嶅彿鎺掑垪瀛樻椿鐜╁锛堢櫧鐥村厤鐤悗澶卞幓鎶曠エ鏉冧絾浠嶅彲鏍囪锛?
+    // 按座位号排列存活玩家（白痴免疫后失去投票权但仍可标记）
     const alivePlayers = this.state.players
       .filter(p => p.alive)
       .sort((a, b) => a.seatNumber - b.seatNumber);
@@ -1090,7 +1149,7 @@ export class GameManager {
 
   private promptNextMarking(): void {
     if (this.state.markingCurrent >= this.state.markingOrder.length) {
-      // 鏍囪瀹屾垚 鈫?杩涘叆鎶曠エ
+      // 标记完成 → 进入投票
       this.startVotingPhase();
       return;
     }
@@ -1144,14 +1203,14 @@ export class GameManager {
     return true;
   }
 
-  // ========== 鎶曠エ闃舵 ==========
+  // ========== 投票阶段 ==========
 
   private startVotingPhase(): void {
     this.state.phase = PHASES.DAY_VOTING;
     this.invalidateActiveAction();
     this.collectedVotes = [];
 
-    // 鐧界棿鍏嶇柅鍚庡け鍘绘姇绁ㄦ潈锛屼絾浠嶇劧瀛樻椿
+    // 白痴免疫后失去投票权，但仍然存活
     const candidates = this.state.players
       .filter(p => p.alive)
       .map(p => p.userId);
@@ -1165,7 +1224,7 @@ export class GameManager {
   }
 
   /**
-   * 妫€鏌ョ帺瀹舵槸鍚︽湁鎶曠エ鏉冿紙鐧界棿鍏嶇柅鍚庡け鍘绘姇绁ㄦ潈锛?
+   * 检查玩家是否有投票权（白痴免疫后失去投票权）
    */
   private hasVotingRight(player: GamePlayer): boolean {
     if (player.role === ROLES.FOOL) {
@@ -1181,7 +1240,7 @@ export class GameManager {
     const voter = this.state.players.find(p => p.userId === userId);
     if (!voter || !voter.alive) return false;
     if (!this.hasVotingRight(voter)) return false;
-    if (userId === target) return false; // 涓嶅彲鎶曡嚜宸?
+    if (userId === target) return false; // 不可投自己
     if (!this.state.players.some(p => p.alive && p.userId === target)) return false;
 
     const active = this.validateAction(actionId, userId, 'voting', target);
@@ -1190,7 +1249,7 @@ export class GameManager {
     this.collectedVotes.push({ voter: userId, target });
     this.markActionSubmitted(active, userId);
 
-    // 妫€鏌ユ槸鍚︽墍鏈夋湁鎶曠エ鏉冪殑浜洪兘鎶曚簡
+    // 检查是否所有有投票权的人都投了
     const eligibleVoters = this.state.players.filter(p => p.alive && this.hasVotingRight(p));
     if (this.collectedVotes.length >= eligibleVoters.length) {
       this.resolveVotingPhase();
@@ -1206,12 +1265,12 @@ export class GameManager {
 
     this.onVotingResult?.(this.collectedVotes, result.exiled, result.tie);
 
-    // 寤惰繜5绉掑啀鍒囨崲闃舵锛岃鐜╁鏈夋椂闂存煡鐪嬫姇绁ㄧ粨鏋?
+    // 延迟5秒再切换阶段，让玩家有时间查看投票结果
     setTimeout(() => {
       if (result.exiled) {
         this.handleExile(result.exiled);
       } else {
-        // 骞崇エ 鈫?鏃犱汉鍑哄眬锛岃繘鍏ュ鏅?
+        // 平票 → 无人出局，进入夜晚
         this.advanceToNextNight();
       }
     }, 5000);
@@ -1224,15 +1283,15 @@ export class GameManager {
       return;
     }
 
-    // 妫€鏌ョ櫧鐥村厤鐤?
+    // 检查白痴免疫
     const handler = this.roleHandlers.get(userId);
     if (handler) {
       const blocked = handler.onExile(this.state, player);
       if (blocked) {
-        // 鐧界棿鍏嶇柅鐢熸晥 鈥?涓嶅嚭灞€锛岃韩浠藉叕寮€
+        // 白痴免疫生效 → 不出局，身份公开
         this.onFoolImmunity?.(userId);
 
-        // 妫€鏌ヨ儨璐燂紙铏界劧鐧界棿娌℃锛屼絾鍙兘鍏朵粬鏉′欢婊¤冻锛?
+        // 检查胜负（虽然白痴没死，但可能其他条件满足）
         const winResult = checkWinCondition(this.state, this.winCondition);
         if (winResult) {
           this.endGame(winResult.winner, winResult.reason);
@@ -1244,7 +1303,7 @@ export class GameManager {
       }
     }
 
-    // 鎵ц鍑哄眬
+    // 执行出局
     player.alive = false;
     for (const item of player.items) {
       item.revealed = true;
@@ -1258,7 +1317,7 @@ export class GameManager {
     };
     this.state.history.deaths.push(deathRecord);
 
-    // 骞挎挱鏀鹃€愬叕鍛婏紙鍚仐鐗╀俊鎭級
+    // 广播放逐公告（含遗物信息）
     this.onDayAnnouncement?.([deathRecord], false, this.state.round, 'exile');
 
     // 先处理放逐产生的死亡触发，再统一检查胜负。
@@ -1272,7 +1331,7 @@ export class GameManager {
     this.startNight();
   }
 
-  // ========== 娓告垙缁撴潫 ==========
+  // ========== 游戏结束 ==========
 
   private endGame(winner: 'good' | 'evil', reason: GameOverReason): void {
     this.state.phase = PHASES.GAME_OVER;
@@ -1284,18 +1343,18 @@ export class GameManager {
   }
 
 
-  // ========== 杈呭姪鏂规硶 ==========
+  // ========== 辅助方法 ==========
 
   private assignItems(settings: GameSettings, playerCount: number, _playerIndex: number): PlayerItem[] {
     if (!settings.items?.enabled) return [];
 
     const pool = settings.items.pool || [ITEMS.MOONSTONE, ITEMS.BALANCE];
-    // 闅忔満鍒嗛厤涓€绉嶇墿鍝?
+    // 随机分配一种物品
     const itemType = pool[Math.floor(Math.random() * pool.length)];
 
     const item: PlayerItem = {
       type: itemType,
-      value: itemType === ITEMS.MOONSTONE ? 0 : '', // 澶╁钩寰界珷鍦ㄥ悗闈㈣绠?
+      value: itemType === ITEMS.MOONSTONE ? 0 : '', // 天平徽章在后面计算
       revealed: false,
     };
 
@@ -1303,7 +1362,7 @@ export class GameManager {
   }
 
   private calculateBalanceBadges(players: GamePlayer[]): void {
-    // 鎸夊骇浣嶅彿鎺掑簭鍚庤绠楅偦搴э紝褰㈡垚鐜舰搴т綅
+    // 按座位号排序后计算邻座，形成环形座位
     const sorted = [...players].sort((a, b) => a.seatNumber - b.seatNumber);
     const seatToFaction = new Map<number, GamePlayer['faction']>();
     for (const p of sorted) {

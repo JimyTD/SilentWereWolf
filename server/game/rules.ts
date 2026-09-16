@@ -25,11 +25,19 @@ export function checkWinCondition(gameState: GameState, winCondition: WinConditi
     if (aliveGood.length === 0) return { winner: FACTIONS.EVIL, reason: 'good_eliminated' };
   } else {
     // 屠边：所有神职出局 或 所有平民出局
+    // 注意：只有在板子里确实存在该类角色时，"该类全灭"才是有效判据。
+    // 否则（例如自定义板子里一个神职都没有）开局就会误判为"神职被淘汰"。
+    const boardVillagers = gameState.players.filter(p => p.role === ROLES.VILLAGER);
+    const boardSpecials = gameState.players.filter(p => SPECIAL_ROLES.has(p.role as string));
     const aliveVillagers = alivePlayers.filter(p => p.role === ROLES.VILLAGER);
     const aliveSpecials = aliveGood.filter(p => SPECIAL_ROLES.has(p.role as string));
 
-    if (aliveSpecials.length === 0 && aliveGood.length > 0) return { winner: FACTIONS.EVIL, reason: 'specials_eliminated' };
-    if (aliveVillagers.length === 0 && aliveGood.length > 0) return { winner: FACTIONS.EVIL, reason: 'villagers_eliminated' };
+    if (boardSpecials.length > 0 && aliveSpecials.length === 0 && aliveGood.length > 0) {
+      return { winner: FACTIONS.EVIL, reason: 'specials_eliminated' };
+    }
+    if (boardVillagers.length > 0 && aliveVillagers.length === 0 && aliveGood.length > 0) {
+      return { winner: FACTIONS.EVIL, reason: 'villagers_eliminated' };
+    }
   }
 
   return null;
@@ -51,17 +59,13 @@ export function resolveNight(gameState: GameState): DeathRecord[] {
   if (wolfTarget) {
     const victim = gameState.players.find(p => p.userId === wolfTarget);
     if (victim) {
-      let isGuarded = guardTarget === wolfTarget;
-      let isSavedByAntidote = witchAction === 'antidote';
+      const isGuarded = guardTarget === wolfTarget;
+      const isSavedByAntidote = witchAction === 'antidote';
 
-      // 同守同救 → 死亡
+      // 同守同救 → 死亡（只记一条死亡记录，避免死讯与后续触发被处理两次）
       if (isGuarded && isSavedByAntidote) {
         addDeath(deaths, victim, DEATH_CAUSE.GUARD_WITCH_CLASH, round, gameState);
-        isGuarded = false;
-        isSavedByAntidote = false;
-      }
-
-      if (!isGuarded && !isSavedByAntidote) {
+      } else if (!isGuarded && !isSavedByAntidote) {
         addDeath(deaths, victim, DEATH_CAUSE.ATTACKED, round, gameState);
       }
       // 被守护 → 存活

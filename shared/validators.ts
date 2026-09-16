@@ -1,4 +1,4 @@
-import { ROLES, ROLE_FACTION, FACTIONS, MAX_PLAYERS, MIN_PLAYERS, PRESETS, COMMON_REASONS, SPECIAL_REASONS } from './constants';
+import { ROLES, ROLE_FACTION, FACTIONS, MAX_PLAYERS, MIN_PLAYERS, PRESETS, COMMON_REASONS, SPECIAL_REASONS, SPECIAL_ROLES } from './constants';
 import type { GameSettings, MarkReason } from './types/game';
 
 /**
@@ -36,6 +36,20 @@ export function validateGameSettings(settings: GameSettings): { valid: boolean; 
   const goodCount = totalPlayers - wolfCount;
   if (goodCount <= wolfCount) {
     return { valid: false, error: '好人数量必须多于狼人数量' };
+  }
+
+  // 屠边模式的胜负条件是"杀光神职"或"杀光平民"，
+  // 若板子里本来就没有该类角色，开局就会被判定为狼人胜利，因此必须拒绝这类板子
+  // 与 GameManager 保持一致：未提供时按默认的屠边处理
+  const winCondition = settings.winCondition || 'edge';
+  if (winCondition === 'edge') {
+    const specialCount = Object.entries(roles)
+      .filter(([role]) => SPECIAL_ROLES.has(role))
+      .reduce((sum, [, count]) => sum + count, 0);
+    const villagerCount = roles[ROLES.VILLAGER] || 0;
+    if (specialCount < 1 || villagerCount < 1) {
+      return { valid: false, error: '屠边模式需要至少 1 个神职和 1 个平民' };
+    }
   }
 
   // 检查每个角色是否合法

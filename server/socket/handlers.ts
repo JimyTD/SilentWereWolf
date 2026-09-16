@@ -917,7 +917,9 @@ async function handleAINightAction(
   }
 
   if (!submitted) {
-    console.error(`[AI] 夜晚行动最终提交失败(${aiUserId}, actionId=${actionId || 'legacy'})`);
+    // AI 玩家没有断线代打计时器，这里若不强制推进，夜晚阶段会永久卡住
+    console.error(`[AI] 夜晚行动最终提交失败，启用强制兜底(${aiUserId}, actionId=${actionId || 'legacy'})`);
+    gm.forceNightActionFallback(aiUserId, actionId);
   }
 }
 
