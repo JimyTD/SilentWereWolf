@@ -284,6 +284,8 @@ docker compose -p silentwerewolf logs --tail=200 nginx
 | 容器反复重启 | 应用日志、生产依赖、Docker 构建结果 |
 | 更新后旧版本仍响应 | 容器状态、固定容器名、Compose 项目名 |
 | 磁盘不足 | `df -h`、`docker system df`；清理前必须确认 |
+| 发布时 `git clone` 报 `GnuTLS recv error` 或连接 `github.com:443` 超时 | 服务器到 `github.com` 的网络问题，改用 `codeload.github.com` 归档发布（见 §11.1） |
+| Docker Hub 不可达导致构建失败 | `docker images` 是否已有基础镜像、BuildKit 缓存是否完整；不要为此改 `Dockerfile` 的镜像源 |
 
 ## 10. 禁止事项
 
@@ -299,17 +301,40 @@ docker compose -p silentwerewolf logs --tail=200 nginx
 
 ## 11. 当前部署状态记录
 
-最近核查时间：2026-09-16（v0.2.2 更新发布）。
+最近核查时间：2026-09-16（提交 `4685d2b` 更新发布，含胜负判定对齐修复）。
 
-- Docker 与 Compose 可用，`git` 可从服务器访问 GitHub。
-- `8080`、`6099` 由 QQBotForFun 占用，`qqbot-*` 容器均正常运行。
+- Docker 与 Compose 可用。
+- ⚠️ 服务器当前**无法访问 `github.com:443`**（`GnuTLS recv error` / 连接超时 130s+），但 GitHub 官方归档域名 `codeload.github.com` 可达。
+- `8080`、`6099` 由 QQBotForFun 占用，`qqbot-bot-1`、`qqbot-redis-1`、`qqbot-postgres-1`、`qqbot-napcat-1` 均正常运行，本次更新未触碰。
 - `8081` 已开放并对外提供服务，由 `silentwerewolf-nginx` 映射 `8081:80`。
 - `silentwerewolf-app`、`silentwerewolf-nginx` 容器运行中，应用内部端口 `3001` 未对公网开放。
-- 当前运行版本：提交 `38814a1`（v0.2.2），发布目录 `/root/SilentWereWolf_38814a1`。
+- 当前运行版本：提交 `4685d2b`，发布目录 `/root/SilentWereWolf_4685d2b`。
 - 密钥文件 `/root/silentwerewolf-secrets/silentwerewolf.env` 存在，目录 `700`、文件 `600`，容器内已注入 `ZHIPU_API_KEY`。
-- 可回滚版本：`/root/SilentWereWolf_20260903100000`、`/root/SilentWereWolf_20260831142146`。
-- 磁盘：`/` 约 40G，已用约 21G，可用约 18G。
-- 内存：总计约 1.9G，可用约 1G，Swap 已使用约 0.6G；构建期间资源偏紧，需观察。
-- Docker Build Cache 约 9.2G，其中可回收约 7.9G；清理前必须取得用户确认。
+- 可回滚版本：`/root/SilentWereWolf_38814a1`（v0.2.2，`git clone` 目录）、`/root/SilentWereWolf_20260903100000`、`/root/SilentWereWolf_20260831142146`、`/root/SilentWereWolf_20260827145231`。
+- 磁盘：`/` 约 40G，已用约 21G，可用约 18G（55%）。
+- 内存：总计约 1.9G，可用约 937Mi，Swap 已使用约 551Mi；构建期间资源偏紧，需持续观察。
+- Docker Build Cache 约 9.4G，其中可回收约 8.2G；清理前必须取得用户确认。
+- 更新后验证结论：`http://127.0.0.1:8081/` 与 `http://106.55.228.236:8081/` 均返回 200，前端静态资源可加载，Socket.IO 客户端连接正常，容器内 AI 密钥已注入。
+
+### 11.1 GitHub 不可达时的发布方式（例外流程）
+
+`github.com:443` 不可达时，`git clone` 无法完成。此时可用 GitHub 官方归档域名完成同一目的：
+
+```bash
+RELEASE=/root/SilentWereWolf_<commit>
+mkdir -p "$RELEASE"
+curl -fsSL -o /tmp/sw.tar.gz https://codeload.github.com/JimyTD/SilentWerewolf/tar.gz/<commit>
+tar -xzf /tmp/sw.tar.gz -C "$RELEASE" --strip-components=1
+echo '<commit>' > "$RELEASE/.release-commit"
+cd "$RELEASE" && docker compose -p silentwerewolf config --quiet
+docker compose -p silentwerewolf up -d --build
+```
+
+注意：
+
+- 归档必须按**commit 号**（不要用 `main`），保证发布内容可追溯。
+- 该目录不是 Git 工作区，`git -C <目录> rev-parse HEAD` 不可用；核对版本改用 `cat <目录>/.release-commit`。
+- 该目录仍可作为回滚目录使用（见 §8）。
+- 仍然禁止 SSH/SCP、禁止把本地文件上传作为常规发布方式。
 
 每次更新前仍需重新执行资源、端口、防火墙和 QQBot 状态检查。
