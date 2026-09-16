@@ -299,13 +299,17 @@ docker compose -p silentwerewolf logs --tail=200 nginx
 
 ## 11. 当前部署状态记录
 
-最近核查的服务器状态：
+最近核查时间：2026-09-16（v0.2.2 更新发布）。
 
-- Docker 与 Compose 可用。
-- `8080`、`6099` 已被 QQBotForFun 占用。
-- `8081` 当时没有监听服务，防火墙尚未开放。
-- 当前尚无 `silentwerewolf-*` 容器。
-- GitHub 仓库可从服务器访问。
-- 服务器磁盘和内存可以进行一次测试部署，但构建期间仍需观察资源。
+- Docker 与 Compose 可用，`git` 可从服务器访问 GitHub。
+- `8080`、`6099` 由 QQBotForFun 占用，`qqbot-*` 容器均正常运行。
+- `8081` 已开放并对外提供服务，由 `silentwerewolf-nginx` 映射 `8081:80`。
+- `silentwerewolf-app`、`silentwerewolf-nginx` 容器运行中，应用内部端口 `3001` 未对公网开放。
+- 当前运行版本：提交 `38814a1`（v0.2.2），发布目录 `/root/SilentWereWolf_38814a1`。
+- 密钥文件 `/root/silentwerewolf-secrets/silentwerewolf.env` 存在，目录 `700`、文件 `600`，容器内已注入 `ZHIPU_API_KEY`。
+- 可回滚版本：`/root/SilentWereWolf_20260903100000`、`/root/SilentWereWolf_20260831142146`。
+- 磁盘：`/` 约 40G，已用约 21G，可用约 18G。
+- 内存：总计约 1.9G，可用约 1G，Swap 已使用约 0.6G；构建期间资源偏紧，需观察。
+- Docker Build Cache 约 9.2G，其中可回收约 7.9G；清理前必须取得用户确认。
 
-正式部署前仍需重新执行资源、端口、防火墙和 QQBot 状态检查。
+每次更新前仍需重新执行资源、端口、防火墙和 QQBot 状态检查。
