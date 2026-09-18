@@ -301,6 +301,32 @@ export class RoomManager {
   // ========== AI 玩家管理 ==========
 
   /**
+   * 校验「测试 AI」的调用权限（仅房主、仅等待中）。
+   *
+   * 该操作会真实调用一次模型、消耗一次额度，所以不能像其他房间事件那样
+   * 只靠前端按钮的显隐来限制 —— 与 kick / updateSettings / startGame 保持同一套校验口径。
+   */
+  checkTestAIPermission(userId: string): { success: boolean; error?: string; message?: string } {
+    const user = this.users.get(userId);
+    if (!user || !user.roomId) {
+      return { success: false, error: 'NOT_IN_ROOM', message: '你不在房间中' };
+    }
+
+    const room = this.rooms.get(user.roomId);
+    if (!room) {
+      return { success: false, error: 'ROOM_NOT_FOUND', message: '房间不存在' };
+    }
+    if (room.hostUserId !== userId) {
+      return { success: false, error: 'NOT_HOST', message: '仅房主可以测试 AI' };
+    }
+    if (room.status !== ROOM_STATUS.WAITING) {
+      return { success: false, error: 'GAME_IN_PROGRESS', message: '游戏中无法测试 AI' };
+    }
+
+    return { success: true };
+  }
+
+  /**
    * 添加 AI 玩家到房间（仅房主可调用）
    */
   async addAIPlayer(hostUserId: string): Promise<{ success: boolean; room?: Room; player?: RoomPlayer; error?: string; message?: string }> {

@@ -208,7 +208,7 @@ export async function decideNightAction(
 
 
   // 调用 LLM
-  let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 500 });
+  let result = await callLLM({ systemPrompt, userPrompt, jsonMode: true });
   let parsed = result.success ? normalizeTarget(extractJSON(result.content), targetDetails) : null;
   let retried = false;
   let fallback = false;
@@ -219,7 +219,7 @@ export async function decideNightAction(
     result = await callLLM({
       systemPrompt,
       userPrompt: userPrompt + '\n\n注意：你必须严格返回合法的 JSON，target 必须是提供的座位号之一（数字）。不要输出 JSON 以外的内容。',
-      maxTokens: 300,
+      jsonMode: true,
     });
     parsed = result.success ? normalizeTarget(extractJSON(result.content), targetDetails) : null;
   }
@@ -231,6 +231,7 @@ export async function decideNightAction(
     aiRole: aiPlayer.role,
     phase: 'night',
     round: state.round,
+    model: result.slot,
     prompt: userPrompt,
     response: result.content,
     parsedAction: parsed,
@@ -401,7 +402,7 @@ export async function decideMarking(
   await sleep(getRandomDelay('marking', persona));
 
 
-  let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 1000 });
+  let result = await callLLM({ systemPrompt, userPrompt, jsonMode: true });
   let parsed = result.success ? normalizeEvaluationTargets(extractJSON(result.content), targets) : null;
   let retried = false;
 
@@ -428,7 +429,7 @@ export async function decideMarking(
     result = await callLLM({
       systemPrompt,
       userPrompt: userPrompt + retryHint,
-      maxTokens: 800,
+      jsonMode: true,
     });
     parsed = result.success ? normalizeEvaluationTargets(extractJSON(result.content), targets) : null;
   }
@@ -439,6 +440,7 @@ export async function decideMarking(
     aiRole: aiPlayer.role,
     phase: 'marking',
     round: state.round,
+    model: result.slot,
     prompt: userPrompt,
     response: result.content,
     parsedAction: parsed,
@@ -732,7 +734,7 @@ export async function decideVote(
   await sleep(getRandomDelay('voting', persona));
 
 
-  let result = await callLLM({ systemPrompt, userPrompt, maxTokens: 500 });
+  let result = await callLLM({ systemPrompt, userPrompt, jsonMode: true });
   let parsed = result.success ? normalizeTarget(extractJSON(result.content), targetDetails) : null;
   let retried = false;
 
@@ -741,7 +743,7 @@ export async function decideVote(
     result = await callLLM({
       systemPrompt,
       userPrompt: userPrompt + '\n\n注意：target 必须是提供的座位号之一（数字）。不要输出 JSON 以外的内容。',
-      maxTokens: 300,
+      jsonMode: true,
     });
     parsed = result.success ? normalizeTarget(extractJSON(result.content), targetDetails) : null;
   }
@@ -752,6 +754,7 @@ export async function decideVote(
     aiRole: aiPlayer.role,
     phase: 'voting',
     round: state.round,
+    model: result.slot,
     prompt: userPrompt,
     response: result.content,
     parsedAction: parsed,
@@ -868,7 +871,7 @@ export async function decideTriggerAction(
   await sleep(getRandomDelay('trigger', getPersona(state.roomId, aiPlayer.userId)));
 
 
-  const result = await callLLM({ systemPrompt, userPrompt, maxTokens: 400 });
+  const result = await callLLM({ systemPrompt, userPrompt, jsonMode: true });
   const parsed = result.success ? normalizeTarget(extractJSON(result.content), targetDetails) : null;
 
   logAIDecision(state.roomId, {
@@ -877,6 +880,7 @@ export async function decideTriggerAction(
     aiRole: aiPlayer.role,
     phase: triggerType,
     round: state.round,
+    model: result.slot,
     prompt: userPrompt,
     response: result.content,
     parsedAction: parsed,

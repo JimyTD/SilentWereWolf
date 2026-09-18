@@ -11,6 +11,11 @@ interface AILogEntry {
   aiRole: string;
   phase: string;
   round: number;
+  /**
+   * 实际生效的模型档（如 `tokenhub:qwen3.5-plus`）。
+   * 链路降档后，只有把它记下来，事后才查得出"这一手是哪档判的"。
+   */
+  model?: string;
   prompt: string;
   response: string;
   parsedAction: unknown;

@@ -8,9 +8,14 @@ import type { ClientToServerEvents, ServerToClientEvents } from '../shared/types
 import { registerSocketHandlers } from './socket/handlers';
 import { RoomManager } from './rooms/RoomManager';
 import { startRoomCleanup } from './rooms/cleanup';
+import { logLadderOnce, refreshOnlineModels } from './game/ai/AIProviderLadder';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+// 打印阶梯链（不含密钥）；再拉一次 tokenhub 模型清单，把已停服的档从链上剔除（失败不阻断启动）
+logLadderOnce();
+void refreshOnlineModels();
 
 const app = express();
 const httpServer = createServer(app);

@@ -53,12 +53,14 @@ Express + Socket.IO + 前端静态文件
 
 | 变量 | 是否必需 | 说明 |
 |---|---:|---|
-| `ZHIPU_API_KEY` | AI 功能必需 | 智谱 API 密钥 |
-| `ZHIPU_MODEL` | 否 | 默认 `glm-4-flash` |
+| `ZHIPU_API_KEY` | AI 功能必需 | 智谱 API 密钥（阶梯链最后一档的兜底 provider） |
+| `TOKENHUB_API_KEY` | 否 | 腾讯云 TokenHub（广州站）密钥。配上后 AI 优先走链路上的 TokenHub 档 |
+| `LLM_MODEL_CHAIN` | 否 | 覆盖阶梯链顺序（逗号分隔，如 `tokenhub:glm-5.1,zhipu:glm-4-flash-250414`）。留空用代码内置链。**调序不需要改代码、不需要重新构建镜像** |
+| `ZHIPU_MODEL` | — | **已弃用**：模型名现在写在阶梯链里，该变量不再参与任何逻辑，保留不会报错但改它无效 |
 | `NODE_ENV` | 是 | 生产环境为 `production` |
 | `PORT` | 是 | 容器内部固定为 `3001` |
 
-没有 `ZHIPU_API_KEY` 时，网站和基础游戏可以启动，但 AI 模型调用会失败并使用兜底行为；这不算 AI 功能部署完成。
+两个 AI 密钥都缺失时，网站和基础游戏可以启动，但 AI 模型调用会失败并使用兜底行为；这不算 AI 功能部署完成。只配 `ZHIPU_API_KEY` 时，AI 只会在链路最后一档（智谱）上工作，等于本次改造前的水平。
 
 ### 4.2 密钥存放位置
 
@@ -79,7 +81,8 @@ Express + Socket.IO + 前端静态文件
 
 ```dotenv
 ZHIPU_API_KEY=<在服务器安全录入的真实密钥>
-ZHIPU_MODEL=glm-4-flash
+TOKENHUB_API_KEY=<在服务器安全录入的真实密钥>
+# LLM_MODEL_CHAIN=   # 只在需要覆盖链路顺序时填写（逗号分隔，不留空格）
 ```
 
 真实密钥不得：
@@ -280,7 +283,8 @@ docker compose -p silentwerewolf logs --tail=200 nginx
 |---|---|
 | 网页打不开 | `8081` 防火墙、Nginx 容器、端口监听 |
 | 网页能开但实时操作失败 | Nginx `/socket.io/` 转发、应用容器日志 |
-| AI 全部走兜底 | 密钥文件路径、权限、`ZHIPU_API_KEY` 是否注入容器 |
+| AI 全部走兜底 | 密钥文件路径、权限、`ZHIPU_API_KEY` / `TOKENHUB_API_KEY` 是否注入容器 |
+| AI 用上了备用模型 | 应用日志搜 `[LLMLadder]`：链路、各档冷却与降档原因都在那里；调序改 `LLM_MODEL_CHAIN` 即可，不用改代码 |
 | 容器反复重启 | 应用日志、生产依赖、Docker 构建结果 |
 | 更新后旧版本仍响应 | 容器状态、固定容器名、Compose 项目名 |
 | 磁盘不足 | `df -h`、`docker system df`；清理前必须确认 |

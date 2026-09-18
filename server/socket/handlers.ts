@@ -19,6 +19,15 @@ import { testAIConnection } from '../game/ai/AIApiClient';
 
 type IOServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
+/**
+ * AI 决策的外层看门狗 —— **保持项目原值，不抬高**。
+ *
+ * 本项目给玩家展示的阶段计时是 `settings.timers`（夜晚行动默认 20s、投票默认 30s，
+ * 触发类固定 60s），60s 已经是个偏大的上限；再抬到 90s 会让真人等到自己的倒计时归零
+ * 之后仍要继续干等，属于产品缺陷。所以改为收紧链内预算来适配它
+ * （`LLM_CHAIN_BUDGET_MS`，默认 20s）：最坏 32s(拟人 sleep) + 20s + 20s 超过 60s 时
+ * 由这里截断并走既有兜底，表现不劣于改造前。
+ */
 const AI_ACTION_TIMEOUT_MS = 60000;
 
 /**
@@ -271,6 +280,13 @@ export function registerSocketHandlers(
 
   socket.on('room:testAI', async (callback) => {
     try {
+      // 会真实调用一次模型（消耗一次额度），因此与其它房间动作一样走房主校验
+      const permission = roomManager.checkTestAIPermission(userId);
+      if (!permission.success) {
+        callback({ success: false, error: permission.error, message: permission.message });
+        return;
+      }
+
       const result = await testAIConnection();
       callback({ success: result.success, message: result.message });
     } catch (err) {
