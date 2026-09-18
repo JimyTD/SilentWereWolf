@@ -305,20 +305,21 @@ docker compose -p silentwerewolf logs --tail=200 nginx
 
 ## 11. 当前部署状态记录
 
-最近核查时间：2026-09-16（提交 `4685d2b` 更新发布，含胜负判定对齐修复）。
+最近核查时间：2026-09-18（提交 `1c6b0ea` 更新发布，含 AI 阶梯模型链 v0.3.0）。
 
 - Docker 与 Compose 可用。
-- ⚠️ 服务器当前**无法访问 `github.com:443`**（`GnuTLS recv error` / 连接超时 130s+），但 GitHub 官方归档域名 `codeload.github.com` 可达。
+- ⚠️ 服务器**无法访问 `github.com:443`**（`GnuTLS recv error` / 连接超时 130s+），GitHub 官方归档域名 `codeload.github.com` 可达。本次仍按 §11.1 的归档方式发布，未再复测 `github.com` 连通性。
 - `8080`、`6099` 由 QQBotForFun 占用，`qqbot-bot-1`、`qqbot-redis-1`、`qqbot-postgres-1`、`qqbot-napcat-1` 均正常运行，本次更新未触碰。
 - `8081` 已开放并对外提供服务，由 `silentwerewolf-nginx` 映射 `8081:80`。
 - `silentwerewolf-app`、`silentwerewolf-nginx` 容器运行中，应用内部端口 `3001` 未对公网开放。
-- 当前运行版本：提交 `4685d2b`，发布目录 `/root/SilentWereWolf_4685d2b`。
+- 当前运行版本：提交 `1c6b0ea`（v0.3.0，容器内 `package.json` 已核对），发布目录 `/root/SilentWereWolf_1c6b0ea`。
 - 密钥文件 `/root/silentwerewolf-secrets/silentwerewolf.env` 存在，目录 `700`、文件 `600`，容器内已注入 `ZHIPU_API_KEY`。
-- 可回滚版本：`/root/SilentWereWolf_38814a1`（v0.2.2，`git clone` 目录）、`/root/SilentWereWolf_20260903100000`、`/root/SilentWereWolf_20260831142146`、`/root/SilentWereWolf_20260827145231`。
-- 磁盘：`/` 约 40G，已用约 21G，可用约 18G（55%）。
-- 内存：总计约 1.9G，可用约 937Mi，Swap 已使用约 551Mi；构建期间资源偏紧，需持续观察。
-- Docker Build Cache 约 9.4G，其中可回收约 8.2G；清理前必须取得用户确认。
-- 更新后验证结论：`http://127.0.0.1:8081/` 与 `http://106.55.228.236:8081/` 均返回 200，前端静态资源可加载，Socket.IO 客户端连接正常，容器内 AI 密钥已注入。
+- ⚠️ **`TOKENHUB_API_KEY` 尚未注入**：AI 阶梯链上 13 个 TokenHub 档处于 `(skip: no key)`，实际只走链尾 `zhipu:glm-4-flash-250414`，即本次改造前的水平。补注入后需按 §7.2 重新 `up -d`（会中断进行中的对局）。
+- 可回滚版本：`/root/SilentWereWolf_4685d2b`、`/root/SilentWereWolf_38814a1`（v0.2.2，`git clone` 目录）、`/root/SilentWereWolf_20260903100000`、`/root/SilentWereWolf_20260831142146`、`/root/SilentWereWolf_20260827145231`。
+- 磁盘：`/` 约 40G，已用约 27G，可用约 **12G（70%）**；较上次记录（可用约 18G）明显下降，需关注。
+- 内存：总计约 1.9G，可用约 1.0G，Swap 已使用约 629Mi；构建期间资源偏紧，需持续观察。
+- Docker Build Cache：**15.53GB，其中可回收 14.2GB**（较上次记录的 9.4G 继续增长，是磁盘下降的主因）；清理前必须取得用户确认。
+- 更新后验证结论：`http://127.0.0.1:8081/` 与 `http://106.55.228.236:8081/` 均返回 200；启动日志打印完整 14 档链路、TokenHub 档标注 `(skip: no key)`；Socket.IO 客户端连接正常；QQBot 容器未受影响。
 
 ### 11.1 GitHub 不可达时的发布方式（例外流程）
 
