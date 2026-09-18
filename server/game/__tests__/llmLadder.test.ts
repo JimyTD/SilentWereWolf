@@ -332,6 +332,26 @@ describe('/v1/models 裁剪', () => {
     expect(result.slot).toBe('tokenhub:qwen3.5-plus');
     expect(calls.filter(call => call.model === 'dead-model')).toHaveLength(0);
   });
+
+  it('链上档被剔除时点名，避免链悄悄变短', async () => {
+    const warnSpy = vi.mocked(console.warn);
+    useShortChain('tokenhub:dead-model,tokenhub:glm-5.1');
+    stubFetch(call =>
+      call.url.endsWith('/models')
+        ? jsonResponse(200, {
+            data: [
+              { id: 'glm-5.1', status: 'online' },
+              { id: 'dead-model', status: 'discontinued' },
+            ],
+          })
+        : jsonResponse(200, OK_BODY),
+    );
+
+    await refreshOnlineModels();
+
+    const logged = warnSpy.mock.calls.flat().map(String).join(' | ');
+    expect(logged).toContain('tokenhub:dead-model');
+  });
 });
 
 beforeEach(() => {

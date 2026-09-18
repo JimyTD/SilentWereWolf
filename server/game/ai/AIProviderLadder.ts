@@ -426,6 +426,15 @@ export async function refreshOnlineModels(timeoutMs = 3000): Promise<Set<string>
         (preOffline.size > 0 ? `，其中 ${preOffline.size} 个已公告下线但仍在服务（应优先烧）` : '') +
         '；已停服的档将被跳过',
     );
+
+    // ⚠️ 被剔除的链上档必须点名：只写"会跳过"的话，链悄悄变短也没人知道
+    const culled = getLlmConfig()
+      .chain.filter(slot => slot.provider === 'tokenhub' && !available.has(slot.model))
+      .map(slot => slot.key);
+    if (culled.length > 0) {
+      console.warn(`[LLMLadder] 链上档已停服，本次已剔除 ${culled.length} 档: ${culled.join(', ')}`);
+    }
+
     return available;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
