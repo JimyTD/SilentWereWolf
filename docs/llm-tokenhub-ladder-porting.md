@@ -442,7 +442,7 @@ cd d:/Fun/SilentWereWolf/server; npx tsx index.ts
 
 ### 9.8 部署、密钥与版本
 
-- 生产密钥文件 `/root/silentwerewolf-secrets/silentwerewolf.env` 追加 `TOKENHUB_API_KEY=`，可选 `LLM_MODEL_CHAIN=`（不是密钥，但放同一份文件最省事：compose 与镜像都不用改）。严禁写进 Lighthouse 命令、日志、聊天、截图。
+- 生产密钥文件 `/root/silentwerewolf-secrets/silentwerewolf.env` 追加 `TOKENHUB_API_KEY=`，可选 `LLM_MODEL_CHAIN=`（不是密钥，但放同一份文件最省事：compose 与镜像都不用改）。写入由 Agent 通过 Lighthouse 命令完成（正常路径）；硬约束只有一条：**不得进入 Git 仓库**。
 - `docs/operations.md` §4.1 环境变量表补 `TOKENHUB_API_KEY` / `LLM_MODEL_CHAIN`；§11 部署状态在发布后更新。
 - **两步上线（本项目专属灰度路径）**：
   1. 先只发代码、**不配** `TOKENHUB_API_KEY` → 链退化为单档 `zhipu:glm-4-flash`，行为与现状等价（仅超时/重试语义按 §9.2 收紧），零风险上线；

@@ -2,7 +2,7 @@
 description: 腾讯云 SilentWerewolf 运维与部署规则
 alwaysApply: true
 enabled: true
-updatedAt: 2026-08-26T00:00:00.000Z
+updatedAt: 2026-09-18T00:00:00.000Z
 provider:
 ---
 
@@ -90,7 +90,7 @@ git ls-remote https://github.com/JimyTD/SilentWerewolf.git HEAD
 
 ### 6.2 配置密钥
 
-通过安全方式在服务器创建：
+由 Agent 通过 Lighthouse 命令在服务器创建：
 
 ```text
 /root/silentwerewolf-secrets/silentwerewolf.env
@@ -99,11 +99,13 @@ git ls-remote https://github.com/JimyTD/SilentWerewolf.git HEAD
 内容至少包括：
 
 ```dotenv
-ZHIPU_API_KEY=<真实密钥，由操作者在服务器安全录入>
-ZHIPU_MODEL=glm-4-flash
+ZHIPU_API_KEY=<真实密钥>
+TOKENHUB_API_KEY=<真实密钥>
 ```
 
-设置目录 `700`、文件 `600`。真实密钥不得出现在 Lighthouse 参数、聊天记录、Git、Dockerfile、镜像或日志中。
+设置目录 `700`、文件 `600`。
+
+**密钥写入的正常路径就是由 Agent 用命令配置上去**，不需要人工在服务器上手工编辑。唯一硬约束是**不得进入 Git 仓库**（否则等于公开泄露）：不得提交、不得写进 `Dockerfile` 或镜像构建参数、不得写进 `docker-compose.yml`。排查时不要整份 `cat` 密钥文件，确认变量是否存在请用只输出变量名的方式（如 `cut -d= -f1`）。
 
 ### 6.3 Git 拉取与构建
 
@@ -168,7 +170,7 @@ docker compose -p silentwerewolf up -d --build
 
 ## 9. 密钥和数据规则
 
-- `ZHIPU_API_KEY` 只从服务器外部密钥文件注入容器。
+- `ZHIPU_API_KEY` / `TOKENHUB_API_KEY` 只从服务器外部密钥文件注入容器；该文件由 Agent 通过 Lighthouse 命令维护。
 - 密钥文件不放在 Git 发布目录内。
 - 游戏状态仅在内存中，更新或重启会结束当前对局。
 - AI 日志目前写入容器内部，没有持久化卷，更新或重建可能丢失。
@@ -201,4 +203,4 @@ docker system df
 - `docker system prune`、`docker builder prune` 等未经确认的清理
 - 操作 `qqbot-*` 容器、`qqbot_default` 网络或 QQBot 文件
 - 暴露 `3001`、使用 `22`、`8080`、`6099`
-- 把真实 API 密钥写入命令、日志、Git、镜像或聊天记录
+- 把真实 API 密钥提交进 Git、写进 `Dockerfile`、镜像构建参数或 `docker-compose.yml`（**通过 Lighthouse 命令注入服务器密钥文件属于正常路径，不受此限**）

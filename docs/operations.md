@@ -85,13 +85,13 @@ TOKENHUB_API_KEY=<在服务器安全录入的真实密钥>
 # LLM_MODEL_CHAIN=   # 只在需要覆盖链路顺序时填写（逗号分隔，不留空格）
 ```
 
-真实密钥不得：
+真实密钥的唯一硬约束是**不得进入 Git 仓库**（否则等于公开泄露）：
 
-- 提交到 Git。
-- 放进 `Dockerfile` 或镜像构建参数。
-- 写进 `docker-compose.yml`。
-- 写进 Lighthouse 命令、日志或聊天消息。
-- 放进截图、测试输出或错误报告。
+- 不得提交到 Git，包括文档示例、测试样例等任何被跟踪的文件。
+- 不得放进 `Dockerfile` 或镜像构建参数。
+- 不得写进 `docker-compose.yml`。
+
+写入方式（正常路径）：**由 Agent 通过 Lighthouse 命令写入服务器密钥文件**，不需要人工在服务器上手工编辑。排查时不要整份 `cat` 该文件；确认变量是否存在请用只输出变量名的方式（如 `cut -d= -f1`）。
 
 仓库的 `docker-compose.yml` 会从上述外部文件读取变量。文件不存在时 Compose 仍可启动，但 AI 功能会降级为兜底逻辑；正式测试前必须确认文件存在且权限正确。
 
@@ -139,7 +139,7 @@ docker system df
 
 ### 6.2 创建服务器密钥文件
 
-在服务器上通过安全方式创建 `/root/silentwerewolf-secrets/silentwerewolf.env`，不要把真实值放进 Lighthouse 命令或聊天内容，然后设置：
+由 Agent 通过 Lighthouse 命令创建 `/root/silentwerewolf-secrets/silentwerewolf.env`（密钥经命令写入是**正常路径**；唯一硬约束是不得进入 Git 仓库），然后设置：
 
 ```bash
 chmod 700 /root/silentwerewolf-secrets
@@ -296,7 +296,7 @@ docker compose -p silentwerewolf logs --tail=200 nginx
 - 禁止使用 SSH/SCP 代替 Lighthouse。
 - 禁止操作 `qqbot-*` 容器、`qqbot_default` 网络和 QQBotForFun 文件。
 - 禁止使用 `22`、`8080`、`6099`。
-- 禁止把真实 API 密钥提交 Git 或写进命令、日志、镜像。
+- 禁止把真实 API 密钥提交进 Git、写进 `Dockerfile`、镜像构建参数或 `docker-compose.yml`（**通过 Lighthouse 命令注入服务器密钥文件是正常路径，不受此限**）。
 - 禁止在宿主机安装或修改 Nginx。
 - 禁止只 `restart` 不重新构建。
 - 禁止删除当前运行版本和最近一个可回滚版本。
