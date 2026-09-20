@@ -442,11 +442,9 @@ cd d:/Fun/SilentWereWolf/server; npx tsx index.ts
 
 ### 9.8 部署、密钥与版本
 
-- 生产密钥文件 `/root/silentwerewolf-secrets/silentwerewolf.env` 追加 `TOKENHUB_API_KEY=`，可选 `LLM_MODEL_CHAIN=`（不是密钥，但放同一份文件最省事：compose 与镜像都不用改）。写入由 Agent 通过 Lighthouse 命令完成（正常路径）；硬约束只有一条：**不得进入 Git 仓库**。
-- `docs/operations.md` §4.1 环境变量表补 `TOKENHUB_API_KEY` / `LLM_MODEL_CHAIN`；§11 部署状态在发布后更新。
-- **两步上线（本项目专属灰度路径）**：
-  1. 先只发代码、**不配** `TOKENHUB_API_KEY` → 链退化为单档 `zhipu:glm-4-flash`，行为与现状等价（仅超时/重试语义按 §9.2 收紧），零风险上线；
-  2. 观察一天无异常后，在服务器密钥文件里补 key 与链序 → `docker compose -p silentwerewolf up -d`（env 变化会 recreate 容器，**会中断进行中的对局**，挑空闲时段）。
+- 历史记录：当时生产密钥文件 `/root/silentwerewolf-secrets/silentwerewolf.env` 追加了 `TOKENHUB_API_KEY=`，可选 `LLM_MODEL_CHAIN=`（不是密钥，但放同一份文件最省事：compose 与镜像都不用改）。当时通过 Lighthouse 命令写入；该通道现已永久停用，后续维护必须遵循 `docs/operations.md` 的 SSH 流程。硬约束仍然只有一条：**不得进入 Git 仓库**。
+- 现行 `docs/operations.md` 的 “AI environment configuration” 已列出 `TOKENHUB_API_KEY` / `LLM_MODEL_CHAIN` / `ZHIPU_MODEL` 状态；运行状态由服务器的 release manifest 管理，不再写回文档。
+- **历史灰度路径，已完成**：当时先上线无 `TOKENHUB_API_KEY` 的代码，再在观察期后补 key。后续任何密钥或链序修改均按现行运维手册执行 `recreate-current-release.sh`，并确认会中断进行中的对局。
 - 版本 `0.2.2 → 0.3.0`（新功能）：三处 `package.json` + `CHANGELOG.md` 顶部同步，用用户视角描述（例："AI 在某个模型不可用时自动切换备用模型，减少 AI 卡壳"）。
 - **链路无需任何前置验证**：14 档全部来自 QQBotForFun 的已验证清单（13 档探针实测 + 链尾为现役生产模型）。本项目待办只有「接入」，不含「复验」。
 
@@ -457,8 +455,8 @@ cd d:/Fun/SilentWereWolf/server; npx tsx index.ts
 - [x] 3. `testAIConnection` 走链并报出**实际生效档**；`jsonMode` + `response_format`（含退化与 JSON 校验）；`AILogEntry.model` + 4 处调用点
 - [x] 4. 启动打印链路 + 启动裁剪（`server/index.ts`）
 - [x] 5. 本地验收：`npx tsc --noEmit -p server/tsconfig.json` 通过；`npx vitest run` **52 passed**（其中本特性 20 个用例）；无效 key 真实网络演练通过（§9.12）
-- [ ] 6. 发布前：`docs/operations.md` 环境变量表 + `CHANGELOG.md` + 三处 `package.json`（0.2.2 → 0.3.0）
-- [ ] 7. 服务器补 `TOKENHUB_API_KEY` 后重启，按 §9.12 的方式 `grep LLMLadder` 确认链生效
+- [x] 6. `docs/operations.md` 环境变量、`CHANGELOG.md` 与三处 `package.json` 已在 v0.3.0 发布时同步。
+- [x] 7. 服务器已注入 `TOKENHUB_API_KEY` 并完成链路验证；后续检查遵循现行运维手册。
 
 ### 9.10 明确不做（YAGNI）
 
@@ -509,11 +507,11 @@ cd d:/Fun/SilentWereWolf/server; npx tsx index.ts
 | # | 发现 | 性质 | 处理 |
 |---|---|---|---|
 | 1 | 我先把 `AI_ACTION_TIMEOUT_MS` 抬到 90s —— **方向错了** | 与产品计时冲突 | **已撤回，保持 60s**。项目给玩家展示的阶段计时是 `settings.timers`（夜晚默认 20s / 投票默认 30s / 触发固定 60s）；抬上限会让真人等到自己倒计时归零后继续干等。正确做法是保持外层不变、把**链内预算**收紧到 20s |
-| 2 | `ZHIPU_MODEL` 变成**死配置** | 文档漂移 | 链里的模型名是照抄的，该变量不再参与任何逻辑。`docs/operations.md` §4.1 仍写着"默认 glm-4-flash" → 发布前必须标注弃用/删除，否则运维会以为改它能换模型 |
+| 2 | `ZHIPU_MODEL` 变成**死配置** | 文档漂移 | 链里的模型名是照抄的，该变量不再参与任何逻辑。现行运维手册已明确标记它为 deprecated and ignored。 |
 | 3 | `room:testAI` **没有房主校验**，且现在会回传"实际生效档" | 权限 / 信息面 | 缺校验是既有问题，但**被我的改动放大**（开始对外暴露链路档名）。已把给前端的错误文本截断到 120 字、完整错误只进日志；**校验没加**（那是独立改动，等你决定） |
 | 4 | 测试文件原先放在 `server/game/ai/__tests__/` | 目录规范 | **已移动**到 `server/game/__tests__/`（架构规范里写明的游戏逻辑测试目录，与既有 4 个测试同处） |
 | 5 | 我自加了 `LLM_MODEL_CHAIN` 环境变量 | 范围外增项 | QQBotForFun 的链写在 `config/llm.yaml`（改配置不改代码），本项目没有配置文件体系，用环境变量做等价物。**你没要求，要删说一声**（删掉则链只存在于代码里） |
 | 6 | `temperature 0.3` 与「AI 要像真人」存在张力 | 知情项 | 本项目专门做了 `AIPersona`（6 种分析偏好）+ 代码层受控随机来制造差异；0.3 让判断更稳但也更趋同。若实测发现多个 AI 的 `analysis` 文本雷同，应先改 prompt 而不是回抬温度 |
 | 7 | 严格 `JSON.parse` 校验 vs 调用点宽松的 `extractJSON` | 轻微不一致 | 按"照抄"要求做严格校验：若模型把推理文字混进 `content`，会被判非法 → 档内重试 → 降档，而调用点其实能解析。实测 13 档均支持 `response_format`、思考内容走 `reasoning_content`，风险低；真出现误降档再放宽 |
 
-**未列入**（属已声明的待办，不是不一致）：`docs/operations.md` 环境变量表、`CHANGELOG.md`、三处 `package.json` 版本号（0.2.2 → 0.3.0）。
+**后续约束**：本章节是 v0.3.0 的历史设计和验收记录。部署、回滚、密钥变更与运行状态一律以现行 `docs/operations.md` 为准。

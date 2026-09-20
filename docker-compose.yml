@@ -12,6 +12,12 @@ services:
     env_file:
       - path: ${SILENTWEREWOLF_ENV_FILE:-/root/silentwerewolf-secrets/silentwerewolf.env}
         required: false
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3001/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
     networks:
       - silentwerewolf-network
     # 不对外暴露端口，仅通过 nginx 访问
@@ -26,7 +32,8 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - silentwerewolf
+      silentwerewolf:
+        condition: service_healthy
     networks:
       - silentwerewolf-network
 

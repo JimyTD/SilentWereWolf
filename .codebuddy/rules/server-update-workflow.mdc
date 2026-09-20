@@ -1,206 +1,63 @@
 ---
-description: 腾讯云 SilentWerewolf 运维与部署规则
+description: SilentWerewolf production deployment and operations rules.
 alwaysApply: true
 enabled: true
-updatedAt: 2026-09-18T00:00:00.000Z
+updatedAt: 2026-09-20T00:00:00.000Z
 provider:
 ---
 
-# 腾讯云服务器运维与部署规则
+# SilentWerewolf Production Operations
 
-## 1. 适用范围
+Read `docs/operations.md` before deploying, rolling back, changing production
+configuration, or investigating the Tencent Cloud host.
 
-当部署、更新、回滚或排查 SilentWerewolf 腾讯云生产环境时，必须遵守本规则和 `docs/operations.md`。
+## Mandatory channel
 
-## 2. 服务器与应用信息
+- The CodeBuddy Lighthouse integration is permanently disabled. Never use its
+  command, upload, firewall, or preparation tools.
+- Use the `silentwerewolf-ssh` MCP server with connection name
+  `silentwerewolf`. Raw OpenSSH with `~/.ssh/silentwerewolf_deploy` is the
+  fallback when MCP is unavailable.
+- A new machine must run `scripts/setup_dev_machine.ps1`, install its public key
+  through the Tencent Cloud web terminal, and pass `-Verify` before use.
+- The cloud web terminal is the non-SSH recovery path. Use it to repair keys or
+  SSH configuration, never as an excuse to bypass the documented release flow.
 
-- 服务器 IP：`106.55.228.236`
-- 实例 ID：`lhins-hwnz7rcz`
-- 地域：`ap-guangzhou`
-- 系统：Ubuntu 24.04.4 LTS
-- Docker：29.4.1
-- Docker Compose：v5.1.3，使用 `docker compose`
-- 公网入口：TCP `8081`
-- 应用内部端口：`3001`，不得对公网开放
-- 应用容器：`silentwerewolf-app`
-- Nginx 容器：`silentwerewolf-nginx`
-- Docker 网络：`silentwerewolf-network`
-- Git 仓库：`https://github.com/JimyTD/SilentWerewolf.git`
-- 生产分支：`main`
-- 密钥文件：`/root/silentwerewolf-secrets/silentwerewolf.env`
+## Shared-host boundaries
 
-最近核查的服务器状态：磁盘可用约 24GB、可用内存约 1GB、Docker Build Cache 可回收约 1.8GB。正式部署前必须重新核查，清理缓存前必须取得用户确认。
+- Production host: `106.55.228.236`; instance: `lhins-hwnz7rcz`;
+  region: `ap-guangzhou`.
+- SilentWerewolf owns Compose project `silentwerewolf`, port `8081`, internal
+  port `3001`, containers `silentwerewolf-app` and `silentwerewolf-nginx`, and
+  network `silentwerewolf-network`.
+- QQBot owns ports `8080` and `6099`, `qqbot-*` containers, and
+  `qqbot_default`. Do not alter, restart, inspect private files from, or join
+  that project.
+- Never run global Docker cleanup, `docker compose down`, `docker compose stop`,
+  `docker compose kill`, `docker compose rm`, `docker volume rm`,
+  `docker network rm`, `docker system prune`, or `docker builder prune`.
 
-## 3. 已有应用隔离红线
+## Release rules
 
-服务器已有 QQBotForFun，禁止触碰：
+- Run type checks, tests, and `npm run build` locally before deployment.
+- Deploy only a full, pushed commit SHA. Never deploy floating `main`.
+- Fetch release source only from the SHA-pinned `codeload.github.com` archive.
+  The host's normal `github.com:443` access is unreliable.
+- Run the checked-in `scripts/deploy-release.sh`; do not hand assemble Compose
+  commands or modify a release directory.
+- Deployment and rollback end active in-memory games. Confirm that interruption
+  is acceptable before setting `SILENTWEREWOLF_DEPLOY_ACK=active-games-will-end`.
+- The script owns `/root/silentwerewolf-releases/current` and `previous`. Use
+  `scripts/rollback-release.sh` for rollback.
+- On failure after activation begins, preserve evidence and let the deployment
+  script restore the prior release. Do not delete directories or clean caches.
 
-- 容器：`qqbot-bot-1`、`qqbot-napcat-1`、`qqbot-postgres-1`、`qqbot-redis-1`
-- 网络：`qqbot_default`
-- 相关文件和运行目录
-- 端口：`8080`、`6099`、内部 `5432`、内部 `6379`
+## Secrets and SSH
 
-其他限制：
-
-- 不得使用或修改 `22`、`8080`、`6099`。
-- 不得把 SilentWerewolf 加入 `qqbot_default`。
-- 不得在宿主机安装或修改 Nginx。
-- 不得删除或重建 QQBot 容器。
-- 不得执行范围不明确的全局 Docker 清理。
-
-## 4. 工具与传输方式
-
-- 远程操作必须使用 Lighthouse 集成 API。
-- 禁止使用 SSH、SCP 或其他传统远程方式。
-- 标准代码传输方式是服务器执行 Git：
-  - 首次部署：`git clone`
-  - 后续更新：创建新的 Git 发布目录
-  - 不再把本地整个项目通过文件上传作为标准流程
-
-## 5. 本地发布前检查
-
-从项目根目录执行：
-
-```powershell
-npx tsc --noEmit -p server/tsconfig.json
-npx tsc --noEmit -p client/tsconfig.json
-npm test -- --run
-npm run build
-```
-
-检查通过、提交已推送到 `origin/main` 后，才允许部署。
-
-## 6. 首次部署流程
-
-### 6.1 服务器预检查
-
-使用 Lighthouse 查询并确认：
-
-```bash
-ss -ltnp
-docker ps --format '{{.Names}}\t{{.Ports}}\t{{.Status}}'
-df -h /
-free -h
-docker system df
-git --version
-git ls-remote https://github.com/JimyTD/SilentWerewolf.git HEAD
-```
-
-必须确认：实例运行、GitHub 可访问、`8081` 空闲、资源足够、QQBot 容器正常。
-
-### 6.2 配置密钥
-
-由 Agent 通过 Lighthouse 命令在服务器创建：
-
-```text
-/root/silentwerewolf-secrets/silentwerewolf.env
-```
-
-内容至少包括：
-
-```dotenv
-ZHIPU_API_KEY=<真实密钥>
-TOKENHUB_API_KEY=<真实密钥>
-```
-
-设置目录 `700`、文件 `600`。
-
-**密钥写入的正常路径就是由 Agent 用命令配置上去**，不需要人工在服务器上手工编辑。唯一硬约束是**不得进入 Git 仓库**（否则等于公开泄露）：不得提交、不得写进 `Dockerfile` 或镜像构建参数、不得写进 `docker-compose.yml`。排查时不要整份 `cat` 密钥文件，确认变量是否存在请用只输出变量名的方式（如 `cut -d= -f1`）。
-
-### 6.3 Git 拉取与构建
-
-```bash
-RELEASE=/root/SilentWerewolf_<commit-or-timestamp>
-git clone --branch main --depth 1 https://github.com/JimyTD/SilentWerewolf.git "$RELEASE"
-cd "$RELEASE"
-git rev-parse HEAD
-docker compose -p silentwerewolf config --quiet
-docker compose -p silentwerewolf up -d --build
-```
-
-Compose 必须使用本项目的 `silentwerewolf-network` 和公网映射 `8081:80`。不得修改或覆盖 QQBot 配置。
-
-### 6.4 首次开放防火墙
-
-先查询防火墙规则，确认没有重复规则后，仅添加 TCP `8081`，来源 `0.0.0.0/0`，动作 `ACCEPT`。不得开放 `3001`。
-
-### 6.5 部署验证
-
-```bash
-docker compose -p silentwerewolf ps
-curl -fsS http://127.0.0.1:8081/ | head -c 200
-curl -fsS http://106.55.228.236:8081/ | head -c 200
-docker compose -p silentwerewolf logs --tail=100 silentwerewolf
-docker ps --format '{{.Names}}\t{{.Ports}}\t{{.Status}}'
-```
-
-还必须在浏览器验证网页、Socket.IO、创建房间、开始对局和 AI 行动，并确认 QQBotForFun 不受影响。
-
-## 7. 更新流程
-
-1. 本地完成类型检查、测试和构建。
-2. 将目标提交推送到 `main`。
-3. 记录当前运行版本和发布目录。
-4. 在服务器创建新的发布目录并执行：
-
-```bash
-RELEASE=/root/SilentWerewolf_<new-commit-or-timestamp>
-git clone --branch main --depth 1 https://github.com/JimyTD/SilentWerewolf.git "$RELEASE"
-cd "$RELEASE"
-git rev-parse HEAD
-docker compose -p silentwerewolf config --quiet
-docker compose -p silentwerewolf up -d --build
-```
-
-5. 验证网页、Socket.IO、AI、容器和 QQBot。
-6. 新版本确认正常后，至少保留当前版本和上一个可回滚版本。
-
-禁止直接修改旧发布目录，禁止使用 `git clean -fdx`。
-
-## 8. 回滚流程
-
-在保留的旧发布目录执行：
-
-```bash
-cd /root/SilentWerewolf_<previous-release>
-docker compose -p silentwerewolf up -d --build
-```
-
-回滚后必须重新验证网页、Socket.IO、AI 密钥注入、容器状态和 QQBot 容器。
-
-## 9. 密钥和数据规则
-
-- `ZHIPU_API_KEY` / `TOKENHUB_API_KEY` 只从服务器外部密钥文件注入容器；该文件由 Agent 通过 Lighthouse 命令维护。
-- 密钥文件不放在 Git 发布目录内。
-- 游戏状态仅在内存中，更新或重启会结束当前对局。
-- AI 日志目前写入容器内部，没有持久化卷，更新或重建可能丢失。
-- 不得为了持久化而擅自挂载 QQBot 数据卷或修改 QQBot 配置。
-
-## 10. 故障排查
-
-```bash
-docker compose -p silentwerewolf ps
-docker compose -p silentwerewolf logs --tail=200 silentwerewolf
-docker compose -p silentwerewolf logs --tail=200 nginx
-ss -ltnp
-df -h /
-free -h
-docker system df
-```
-
-- 网页打不开：检查 `8081` 防火墙、Nginx 容器和端口监听。
-- Socket.IO 失败：检查 Nginx `/socket.io/` 转发和应用日志。
-- AI 走兜底：检查外部密钥文件存在、权限和容器环境变量；不要在日志中打印真实密钥。
-- 容器反复重启：先查看应用日志和生产依赖，不要直接清理 Docker。
-- 磁盘不足：先报告并取得用户确认，再决定是否清理 Build Cache。
-
-## 11. 禁止命令与操作
-
-- `ssh`、`scp`
-- `docker-compose ...`
-- `docker compose restart` 代替构建更新
-- `git clean -fdx`
-- `docker system prune`、`docker builder prune` 等未经确认的清理
-- 操作 `qqbot-*` 容器、`qqbot_default` 网络或 QQBot 文件
-- 暴露 `3001`、使用 `22`、`8080`、`6099`
-- 把真实 API 密钥提交进 Git、写进 `Dockerfile`、镜像构建参数或 `docker-compose.yml`（**通过 Lighthouse 命令注入服务器密钥文件属于正常路径，不受此限**）
+- Secrets exist only in `/root/silentwerewolf-secrets/silentwerewolf.env`, with
+  directory mode `700` and file mode `600`. Do not print the file or place it in
+  Git, Docker build arguments, images, or releases.
+- After a verified SSH key exists, harden SSH with a drop-in. Always run
+  `sshd -t` before `systemctl reload ssh`; never restart SSH remotely.
+- Port `3001` remains private. Firewall changes are made only through Tencent
+  Cloud's console or explicit API tooling.

@@ -9,7 +9,7 @@ COPY client/package.json ./client/
 COPY server/package.json ./server/
 COPY shared/package.json ./shared/
 
-RUN npm install --workspace=client --include-workspace-root
+RUN npm ci --workspace=client --include-workspace-root
 
 # 复制源码
 COPY shared/ ./shared/
@@ -30,7 +30,7 @@ COPY server/package.json ./server/
 COPY shared/package.json ./shared/
 
 # 仅安装 server + shared 的生产依赖
-RUN npm install --workspace=server --workspace=shared --include-workspace-root --omit=dev
+RUN npm ci --workspace=server --workspace=shared --include-workspace-root --omit=dev
 
 # 复制后端源码和共享类型
 COPY server/ ./server/

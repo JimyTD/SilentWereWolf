@@ -39,6 +39,10 @@ const roomManager = new RoomManager();
 // 启动房间空闲清理定时器
 startRoomCleanup(roomManager);
 
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 // 生产环境托管前端静态文件
 if (isProduction) {
   const clientDist = path.resolve(__dirname, '../client/dist');

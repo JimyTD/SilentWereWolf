@@ -28,9 +28,7 @@ cd client && npx vite
 
 生产环境使用 Docker Compose，公网入口为 `8081`，内部应用端口为 `3001`。完整的腾讯云部署、更新、回滚和密钥管理流程请参阅 `docs/operations.md`。
 
-```bash
-docker compose up -d --build
-```
+生产发布必须使用 `docs/operations.md` 中的精确 commit 发布流程；不要在服务器的任意目录直接执行 Compose 更新命令。
 
 ## 目录结构
 
