@@ -9,6 +9,7 @@ import type {
   PlayerMarks,
   VoteRecord,
   DeathRecord,
+  FoolImmunityRecord,
   PlayerItem,
   NightActions,
   MyPrivateInfo,
@@ -59,7 +60,7 @@ export interface ServerToClientEvents {
   'server:marksRevealed': (data: PlayerMarks) => void;
   'server:votingStart': (data: VotingStartData) => void;
   'server:votingResult': (data: VotingResultData) => void;
-  'server:foolImmunity': (data: { userId: string }) => void;
+  'server:foolImmunity': (data: FoolImmunityRecord) => void;
   'server:wolfKingTrigger': (data: { timeout: number; actionId?: string }) => void;
   'server:wolfKingResult': (data: { dragger: string; target: string | null }) => void;
   'server:gameOver': (data: GameOverData) => void;
@@ -194,6 +195,7 @@ export interface GameOverData {
     marks: PlayerMarks[];
     votes: VoteRecord[][];
     deaths: DeathRecord[];
+    foolImmunities: FoolImmunityRecord[];
   };
 }
 
@@ -208,6 +210,7 @@ export interface ClientGameState {
   round: number;
   marks: PlayerMarks[];
   votes: VoteRecord[][];
+  foolImmunities: FoolImmunityRecord[];
   announcements: DayAnnouncementData[];
   // 重连恢复用：查验历史（预言家/守墓人）
   investigations?: { target: string; faction: Faction }[];

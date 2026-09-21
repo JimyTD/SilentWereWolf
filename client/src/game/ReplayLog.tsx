@@ -1,5 +1,5 @@
 import type { GameOverData } from '@shared/types/socket';
-import type { NightActions, DeathRecord, PlayerMarks, VoteRecord, PlayerItem } from '@shared/types/game';
+import type { NightActions, DeathRecord, PlayerMarks, VoteRecord, PlayerItem, FoolImmunityRecord } from '@shared/types/game';
 import { ROLE_LABELS } from '@shared/constants';
 import { getEvaluationColor, getIdentityColor } from './identityColor';
 
@@ -40,6 +40,7 @@ export default function ReplayLog({ data, onClose }: Props) {
   const totalRounds = Math.max(
     data.history.rounds.length,
     data.history.votes.length,
+    ...data.history.foolImmunities.map(event => event.round),
   );
 
   const pLabel = (userId: string) => {
@@ -125,6 +126,7 @@ export default function ReplayLog({ data, onClose }: Props) {
           const roundMarks = data.history.marks.filter(m => m.round === roundIdx + 1);
           const roundVotes = data.history.votes[roundIdx] || [];
           const roundDeaths = data.history.deaths.filter(d => d.round === roundIdx + 1);
+          const roundFoolImmunities = data.history.foolImmunities.filter(event => event.round === roundIdx + 1);
 
           return (
             <RoundSection
@@ -134,6 +136,7 @@ export default function ReplayLog({ data, onClose }: Props) {
               marks={roundMarks}
               votes={roundVotes}
               deaths={roundDeaths}
+              foolImmunities={roundFoolImmunities}
               players={data.players}
               pLabel={pLabel}
               pRole={pRole}
@@ -185,6 +188,7 @@ interface RoundSectionProps {
   marks: PlayerMarks[];
   votes: VoteRecord[];
   deaths: DeathRecord[];
+  foolImmunities: FoolImmunityRecord[];
   players: PlayerInfo[];
   pLabel: (userId: string) => string;
   pRole: (userId: string) => string;
@@ -193,7 +197,7 @@ interface RoundSectionProps {
 }
 
 function RoundSection({
-  round, nightAction, marks, votes, deaths, players, pLabel, pRole, pFaction, formatItemValue,
+  round, nightAction, marks, votes, deaths, foolImmunities, players, pLabel, pRole, pFaction, formatItemValue,
 }: RoundSectionProps) {
   // 按死亡原因分离夜晚死亡和白天死亡
   const nightDeaths = deaths.filter(d => d.cause !== 'exiled');
@@ -366,6 +370,16 @@ function RoundSection({
             {dayDeaths.length === 0 && votes.length > 0 && (
               <div className="mt-1 ml-3.5 text-sm text-yellow-400">平票，无人出局</div>
             )}
+          </div>
+        )}
+
+        {foolImmunities.length > 0 && (
+          <div className="ml-3.5 text-sm text-blue-300">
+            {foolImmunities.map(event => (
+              <div key={`${event.round}-${event.userId}`}>
+                {pLabel(event.userId)} 触发白痴免疫，身份公开并失去投票权
+              </div>
+            ))}
           </div>
         )}
       </div>

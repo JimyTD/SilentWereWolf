@@ -65,6 +65,7 @@ const state = {
     }],
     votes: [],
     deaths: [{ userId: 'villager', seatNumber: 3, cause: 'attacked', round: 1, relics: [] }],
+    foolImmunities: [],
   },
   winner: null,
   nightCurrentRole: null,
@@ -101,5 +102,17 @@ describe('AI context information categories', () => {
     expect(text).toContain('公开系统事实（所有玩家可见，以此为准）');
     expect(text).toContain('私有系统事实（仅你可知）');
     expect(text).toContain('玩家公开声明（不等于真实身份或系统确认）');
+  });
+
+  it('describes a fool immunity as a public vote outcome instead of a tie', () => {
+    state.history.votes = [[{ voter: 'seer', target: 'villager' }, { voter: 'wolf', target: 'villager' }]];
+    state.history.foolImmunities = [{ userId: 'villager', seatNumber: 3, round: 1 }];
+
+    const text = contextToText(buildAIContext(state, room, players[0]));
+    expect(text).toContain('3号玩家白痴免疫，身份公开且失去投票权');
+    expect(text).not.toContain('第1轮：1号→3号，2号→3号 → 平票无人出局');
+
+    state.history.votes = [];
+    state.history.foolImmunities = [];
   });
 });

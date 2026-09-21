@@ -102,6 +102,13 @@ export interface DeathRecord {
   relics: PlayerItem[];
 }
 
+/** 白痴首次被放逐时的公开免疫事件。该玩家存活，但身份公开且失去投票权。 */
+export interface FoolImmunityRecord {
+  userId: string;
+  seatNumber: number;
+  round: number;
+}
+
 // ========== 玩家私有信息（按角色裁剪后下发给本人） ==========
 
 export interface PotionRecord {
@@ -171,6 +178,7 @@ export interface GameState {
     marks: PlayerMarks[];
     votes: VoteRecord[][];
     deaths: DeathRecord[];
+    foolImmunities: FoolImmunityRecord[];
   };
   winner: Faction | null;
   // 夜晚当前等待的角色

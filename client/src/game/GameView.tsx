@@ -26,6 +26,7 @@ export default function GameView({ room }: Props) {
   const votingResult = useGameStore(s => s.votingResult);
   const marks = useGameStore(s => s.marks);
   const players = useGameStore(s => s.players);
+  const triggerState = useGameStore(s => s.triggerState);
   const [toasts, setToasts] = useState<EventToastData[]>([]);
 
   // 追踪已处理的事件，避免重复弹窗
@@ -45,6 +46,8 @@ export default function GameView({ room }: Props) {
   useEffect(() => {
     if (announcements.length === 0) return;
     const latest = announcements[announcements.length - 1];
+    // 普通放逐已经由 votingResult 展示完整票型，避免 5 秒后再重复一次同样的出局提示。
+    if (latest.type === 'exile' && latest.deaths.every(death => death.cause === 'exiled')) return;
     const toastId = `announce-${announcements.length}`;
 
     if (latest.peacefulNight) {
@@ -191,6 +194,7 @@ export default function GameView({ room }: Props) {
 
         {/* 操作区 */}
         <div className="px-3 sm:px-4 pt-2 sm:pt-3">
+          {triggerState.type === 'fool_immunity' && <TriggerPanel room={room} />}
           {phase === PHASES.NIGHT && <NightActionPanel />}
           {phase === PHASES.DAY_ANNOUNCEMENT && <DayAnnouncement />}
           {phase === PHASES.DAY_KNIGHT && <TriggerPanel room={room} />}

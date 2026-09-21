@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Phase, Faction, PlayerMarks, VoteRecord, MyPrivateInfo } from '@shared/types/game';
+import type { Phase, Faction, PlayerMarks, VoteRecord, MyPrivateInfo, FoolImmunityRecord } from '@shared/types/game';
 import type {
   GameStartData,
   PublicPlayerInfo,
@@ -54,6 +54,7 @@ interface GameStoreState {
   votingResult: VotingResultData | null;
   hasVoted: boolean;
   voteHistory: VotingResultData[];
+  foolImmunities: FoolImmunityRecord[];
 
   // 触发链状态
   triggerState: TriggerState;
@@ -79,7 +80,7 @@ interface GameStoreState {
   setHunterTrigger: (canShoot: boolean) => void;
   setWolfKingTrigger: () => void;
   setKnightTurn: (canDuel: boolean) => void;
-  setFoolImmunity: (userId: string) => void;
+  setFoolImmunity: (event: FoolImmunityRecord) => void;
   clearTrigger: () => void;
   reset: () => void;
 }
@@ -111,6 +112,7 @@ const initialState = {
   votingResult: null,
   hasVoted: false,
   voteHistory: [],
+  foolImmunities: [],
   triggerState: initialTriggerState,
   gameOverData: null,
 };
@@ -139,6 +141,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       votingResult: null,
       hasVoted: false,
       voteHistory: [],
+      foolImmunities: [],
       triggerState: initialTriggerState,
       gameOverData: null,
     }),
@@ -155,6 +158,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       round: data.round,
       marks: data.marks,
       announcements: data.announcements,
+      foolImmunities: data.foolImmunities,
       investigations: data.investigations || [],
       myPrivateInfo: data.myPrivateInfo ?? null,
       // 实时操作状态将由后续的事件重新推送（server:markingTurn / server:votingStart / server:nightAction 等）
@@ -253,20 +257,23 @@ export const useGameStore = create<GameStoreState>((set) => ({
       },
     })),
 
-  setFoolImmunity: (userId) =>
+  setFoolImmunity: (event) =>
     set((state) => {
       // 白痴免疫 → 恢复存活状态（前端之前在投票结果时标记死亡了）
       const updatedPlayers = state.players.map(p =>
-        p.userId === userId ? { ...p, alive: true } : p
+        p.userId === event.userId ? { ...p, alive: true } : p
       );
       return {
         triggerState: {
           type: 'fool_immunity',
-          userId,
+          userId: event.userId,
           canAct: false,
           targets: [],
         },
         players: updatedPlayers,
+        foolImmunities: state.foolImmunities.some(existing => existing.userId === event.userId && existing.round === event.round)
+          ? state.foolImmunities
+          : [...state.foolImmunities, event],
       };
     }),
 

@@ -42,7 +42,7 @@ function createState(players: GamePlayer[]): GameState {
     },
     markingOrder: [],
     markingCurrent: 0,
-    history: { rounds: [], marks: [], votes: [], deaths: [] },
+    history: { rounds: [], marks: [], votes: [], deaths: [], foolImmunities: [] },
     winner: null,
     nightCurrentRole: null,
     pendingTriggers: [],
@@ -229,6 +229,35 @@ describe('认输出局的遗物公开', () => {
     const death = gm.getState().history.deaths.find(d => d.cause === DEATH_CAUSE.RESIGNED);
     expect(death?.relics).toHaveLength(1);
     expect(death?.relics[0].revealed).toBe(true);
+  });
+});
+
+describe('白痴免疫公开事件', () => {
+  it('首次被放逐时保留存活状态并写入可公开复盘的历史事件', () => {
+    const settings = createSettings({
+      [ROLES.WEREWOLF]: 1,
+      [ROLES.FOOL]: 1,
+      [ROLES.VILLAGER]: 2,
+    });
+    const gm = new GameManager(createRoom(['u1', 'u2', 'u3', 'u4'], settings));
+    gm.initializeGame();
+
+    const fool = gm.getState().players.find(player => player.role === ROLES.FOOL);
+    expect(fool).toBeDefined();
+
+    let emittedEvent: { userId: string; seatNumber: number; round: number } | undefined;
+    gm.onFoolImmunity = event => {
+      emittedEvent = event;
+    };
+
+    // 直接覆盖放逐结算：本测试关注免疫的状态与公开记录，而非投票收集流程。
+    (gm as unknown as { handleExile: (userId: string) => void }).handleExile(fool!.userId);
+
+    expect(fool?.alive).toBe(true);
+    expect((fool?.roleState as { immunityUsed: boolean }).immunityUsed).toBe(true);
+    expect(emittedEvent).toEqual({ userId: fool!.userId, seatNumber: fool!.seatNumber, round: 1 });
+    expect(gm.getState().history.foolImmunities).toEqual([emittedEvent]);
+    expect(gm.getState().history.deaths).toHaveLength(0);
   });
 });
 

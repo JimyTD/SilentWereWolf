@@ -42,6 +42,7 @@ export default function InfoPanel() {
   const myRole = useGameStore(s => s.myRole);
   const players = useGameStore(s => s.players);
   const myPrivateInfo = useGameStore(s => s.myPrivateInfo);
+  const foolImmunities = useGameStore(s => s.foolImmunities);
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'announcements', label: '公告' },
@@ -79,6 +80,17 @@ export default function InfoPanel() {
         {activeTab === 'announcements' && (
           <div className="space-y-3">
             {announcements.length === 0 && <p className="text-gray-500 text-sm">暂无公告</p>}
+            {foolImmunities.map(event => (
+              <div key={`fool-${event.round}-${event.userId}`} className="border border-blue-500/30 rounded-lg p-3 bg-blue-900/20">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xs bg-blue-700/60 text-blue-100 px-1.5 py-0.5 rounded">R{event.round}</span>
+                  <span className="text-xs text-blue-300">白痴免疫</span>
+                </div>
+                <p className="text-sm text-gray-200">
+                  {getPlayerLabel(event.userId, players)} 首次被放逐免疫，身份公开为白痴并失去投票权。
+                </p>
+              </div>
+            ))}
             {announcements.map((a, i) => (
               <div key={i} className="border border-gray-700 rounded-lg p-3 bg-gray-800/50">
                 <div className="flex items-center gap-2 mb-1.5">

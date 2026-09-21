@@ -154,7 +154,7 @@ export function useSocket() {
     });
 
     socket.on('server:foolImmunity', (data) => {
-      useGameStore.getState().setFoolImmunity(data.userId);
+      useGameStore.getState().setFoolImmunity(data);
       // 短暂显示后清除
       setTimeout(() => {
         useGameStore.getState().clearTrigger();

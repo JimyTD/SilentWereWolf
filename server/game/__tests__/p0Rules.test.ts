@@ -40,7 +40,7 @@ function createState(players: GamePlayer[]): GameState {
     },
     markingOrder: [],
     markingCurrent: 0,
-    history: { rounds: [], marks: [], votes: [], deaths: [] },
+    history: { rounds: [], marks: [], votes: [], deaths: [], foolImmunities: [] },
     winner: null,
     nightCurrentRole: null,
     pendingTriggers: [],

@@ -12,6 +12,7 @@ import type {
   PlayerMarks,
   VoteRecord,
   DeathRecord,
+  FoolImmunityRecord,
   WitchState,
   GuardState,
   GameSettings,
@@ -80,7 +81,7 @@ export class GameManager {
   public onHunterResult?: (shooter: string, target: string | null, targetDeath: boolean) => void;
   public onWolfKingTrigger?: (userId: string, targets: string[], actionId?: string) => void;
   public onWolfKingResult?: (dragger: string, target: string | null) => void;
-  public onFoolImmunity?: (userId: string) => void;
+  public onFoolImmunity?: (event: FoolImmunityRecord) => void;
   public onKnightTurn?: (userId: string, canDuel: boolean, targets: string[], actionId?: string) => void;
   public onDuelResult?: (knightId: string, targetId: string, loserId: string) => void;
 
@@ -502,6 +503,7 @@ export class GameManager {
         marks: [],
         votes: [],
         deaths: [],
+        foolImmunities: [],
       },
       winner: null,
       nightCurrentRole: null,
@@ -1289,7 +1291,13 @@ export class GameManager {
       const blocked = handler.onExile(this.state, player);
       if (blocked) {
         // 白痴免疫生效 → 不出局，身份公开
-        this.onFoolImmunity?.(userId);
+        const event: FoolImmunityRecord = {
+          userId,
+          seatNumber: player.seatNumber,
+          round: this.state.round,
+        };
+        this.state.history.foolImmunities.push(event);
+        this.onFoolImmunity?.(event);
 
         // 检查胜负（虽然白痴没死，但可能其他条件满足）
         const winResult = checkWinCondition(this.state, this.winCondition);

@@ -31,7 +31,12 @@ export interface AIContext {
     phase: string;
     alivePlayers: AIPlayerRef[];
     deadPlayers: { userId: string; nickname: string; seatNumber: number; cause: string; round: number; relics: string[] }[];
-    voteHistory: { round: number; votes: { voter: string; voterNickname: string; voterSeat: number; target: string; targetNickname: string; targetSeat: number }[]; exiled: number | null }[];
+    voteHistory: {
+      round: number;
+      votes: { voter: string; voterNickname: string; voterSeat: number; target: string; targetNickname: string; targetSeat: number }[];
+      outcome: 'tie' | 'exiled' | 'foolImmunity';
+      targetSeat: number | null;
+    }[];
   };
 
   // 只对当前 AI 可见的系统事实，按真实角色填充
@@ -143,11 +148,14 @@ export function buildAIContext(state: GameState, room: Room, aiPlayer: GamePlaye
   // 投票历史
   ctx.publicFacts.voteHistory = state.history.votes.map((roundVotes, i) => {
     // 找出该轮被放逐的人
-    const deaths = state.history.deaths.filter(d => d.cause === 'exiled' && d.round === i + 1);
-    const exiled = deaths.length > 0 ? deaths[0].seatNumber : null;
+    const round = i + 1;
+    const foolImmunity = state.history.foolImmunities.find(event => event.round === round);
+    const death = state.history.deaths.find(d => d.cause === 'exiled' && d.round === round);
+    const outcome = foolImmunity ? 'foolImmunity' : death ? 'exiled' : 'tie';
+    const targetSeat = foolImmunity?.seatNumber ?? death?.seatNumber ?? null;
 
     return {
-      round: i + 1,
+      round,
       votes: roundVotes.map(v => ({
         voter: v.voter,
         voterNickname: getNickname(room, v.voter),
@@ -156,7 +164,8 @@ export function buildAIContext(state: GameState, room: Room, aiPlayer: GamePlaye
         targetNickname: getNickname(room, v.target),
         targetSeat: getSeatNumber(state, v.target),
       })),
-      exiled,
+      outcome,
+      targetSeat,
     };
   });
 
@@ -263,7 +272,11 @@ export function contextToText(ctx: AIContext): string {
       const voteSummary = v.votes
         .map(vote => `${vote.voterSeat}号→${vote.targetSeat}号`)
         .join('，');
-      const result = v.exiled ? `→ ${v.exiled}号玩家被放逐` : '→ 平票无人出局';
+      const result = v.outcome === 'foolImmunity'
+        ? `→ ${v.targetSeat}号玩家白痴免疫，身份公开且失去投票权`
+        : v.outcome === 'exiled'
+          ? `→ ${v.targetSeat}号玩家被放逐`
+          : '→ 平票无人出局';
       lines.push(`第${v.round}轮：${voteSummary} ${result}`);
     }
   }

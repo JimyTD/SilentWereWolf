@@ -135,6 +135,7 @@ export function registerSocketHandlers(
               round: state.round,
               marks: state.history.marks,
               votes: state.history.votes,
+              foolImmunities: state.history.foolImmunities,
               announcements,
               investigations,
               myPrivateInfo: buildMyPrivateInfo(state, player),
@@ -813,8 +814,8 @@ function bindGameCallbacks(
     io.to(roomId).emit('server:wolfKingResult', { dragger, target });
   };
 
-  gm.onFoolImmunity = (foolUserId) => {
-    io.to(roomId).emit('server:foolImmunity', { userId: foolUserId });
+  gm.onFoolImmunity = (event) => {
+    io.to(roomId).emit('server:foolImmunity', event);
   };
 
   gm.onKnightTurn = (targetUserId, canDuel, targets, actionId) => {
@@ -864,6 +865,7 @@ function bindGameCallbacks(
           alive: p.alive,
         })),
         deaths: state.history.deaths,
+        foolImmunities: state.history.foolImmunities,
       },
     });
     console.log(`[游戏结束] 房间${roomId} 第${state.round}轮结束 胜方=${winner} 原因=${reason}`);
@@ -885,6 +887,7 @@ function bindGameCallbacks(
         marks: state.history.marks,
         votes: state.history.votes,
         deaths: state.history.deaths,
+        foolImmunities: state.history.foolImmunities,
       },
     });
 

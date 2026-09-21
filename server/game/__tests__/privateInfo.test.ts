@@ -34,7 +34,7 @@ function createState(players: GamePlayer[], overrides: Partial<GameState> = {}):
     nightActions: emptyNightActions(),
     markingOrder: [],
     markingCurrent: 0,
-    history: { rounds: [], marks: [], votes: [], deaths: [] },
+    history: { rounds: [], marks: [], votes: [], deaths: [], foolImmunities: [] },
     winner: null,
     nightCurrentRole: null,
     pendingTriggers: [],
@@ -58,6 +58,7 @@ describe('buildMyPrivateInfo', () => {
         marks: [],
         votes: [],
         deaths: [],
+        foolImmunities: [],
       },
     });
 
@@ -80,6 +81,7 @@ describe('buildMyPrivateInfo', () => {
         marks: [],
         votes: [],
         deaths: [],
+        foolImmunities: [],
       },
     });
 
@@ -94,6 +96,7 @@ describe('buildMyPrivateInfo', () => {
         marks: [],
         votes: [],
         deaths: [],
+        foolImmunities: [],
       },
     });
 
@@ -113,6 +116,7 @@ describe('buildMyPrivateInfo', () => {
         marks: [],
         votes: [],
         deaths: [],
+        foolImmunities: [],
       },
     });
 
@@ -133,6 +137,7 @@ describe('buildMyPrivateInfo', () => {
         marks: [],
         votes: [],
         deaths: [],
+        foolImmunities: [],
       },
     });
 
@@ -153,6 +158,7 @@ describe('buildMyPrivateInfo', () => {
         marks: [],
         votes: [],
         deaths: [],
+        foolImmunities: [],
       },
     });
 
