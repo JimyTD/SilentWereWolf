@@ -87,6 +87,36 @@ or edit a release directory after deployment.
 Game rooms are in memory. Any release or rollback ends active games. Confirm no
 game may be interrupted before setting the required deployment acknowledgement.
 
+## Release scope and risk tiers
+
+Every source release uses the same immutable-commit, preflight, health-check,
+and rollback process below. A "small" change never skips those safeguards:
+rebuilding the application still ends active games. The tiers instead define
+the expected validation depth and whether the release may be expanded while it
+is in progress. Classify by affected boundaries and reversibility, not by line
+count.
+
+| Tier | Definition | Required preparation |
+| --- | --- | --- |
+| Localized | Presentation or isolated implementation change with no shared protocol, room/game state, authorization, persistence, configuration, or deployment impact. | Targeted regression test plus the standard local release gate. |
+| Standard | Crosses a client/server contract, shared type, room/game state, or a user workflow. Most product features belong here. | Focused automated coverage for the changed contract and a written smoke-test/cleanup sequence before deployment, plus the standard gate. |
+| High risk | Changes authorization, secrets, network exposure, game rules or win conditions, persistence/migration, deployment infrastructure, or rollback behavior. | A short release plan stating user impact, test cases, rollback trigger, and maintenance timing before deployment, plus the standard gate. |
+
+Each release is limited to the user-requested outcome and fixes required to
+make that outcome safe and correct. Do not add opportunistic refactors or
+unrelated findings to an active release window.
+
+When post-deployment verification finds a problem:
+
+1. Roll back or prepare an immediate hotfix only for a security issue, data
+   integrity risk, service availability failure, or a defect that blocks the
+   requested outcome for users.
+2. Record all other findings as a separate follow-up. Do not create a second
+   production release in the same maintenance window without explicit user
+   direction.
+3. If the release itself is unhealthy, prefer rollback over expanding the
+   scope of a hotfix.
+
 ## Local release gate
 
 Run these commands from the repository root. The working tree must be clean and
@@ -167,6 +197,14 @@ check automatically recreates the prior release.
 Follow the script with an external browser check of the website, Socket.IO room
 creation, and an AI action. Verify QQBot remains running with the preflight
 container listing.
+
+For any production smoke test that creates state, define the cleanup sequence
+before performing the action and verify that it completed. Use a dedicated
+temporary identity. For an AI-filled lobby, remove the test AI players while
+the temporary host is still present, then leave the empty room; do not leave a
+hostless or AI-only room behind. If cleanup fails, stop and report it. Treat a
+non-blocking cleanup defect as a follow-up under the release-scope policy
+instead of automatically starting another deployment.
 
 ## Roll back
 
