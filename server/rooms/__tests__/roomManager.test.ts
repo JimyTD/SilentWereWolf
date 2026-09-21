@@ -74,3 +74,41 @@ describe('测试 AI 的调用权限', () => {
     expect(result.error).toBe('GAME_IN_PROGRESS');
   });
 });
+
+describe('批量添加 AI', () => {
+  it('房主可以一次补齐所有空位', () => {
+    const manager = new RoomManager();
+    const roomId = createRoomWithHost(manager);
+
+    const result = manager.fillAIPlayers('host');
+    const room = manager.getRoom(roomId)!;
+
+    expect(result).toMatchObject({ success: true, addedCount: 3 });
+    expect(room.players).toHaveLength(4);
+    expect(room.players.map(player => player.seatNumber)).toEqual([1, 2, 3, 4]);
+    expect(new Set(room.players.map(player => player.nickname)).size).toBe(4);
+    expect(room.players.slice(1).every(player => manager.isAI(player.userId))).toBe(true);
+  });
+
+  it('非房主不能批量添加 AI', () => {
+    const manager = new RoomManager();
+    const roomId = createRoomWithHost(manager);
+    manager.joinRoom(roomId, 'guest', '客人', 'sock-guest');
+
+    const result = manager.fillAIPlayers('guest');
+
+    expect(result).toMatchObject({ success: false, error: 'NOT_HOST' });
+  });
+
+  it('房间已满时拒绝批量添加 AI', () => {
+    const manager = new RoomManager();
+    const roomId = createRoomWithHost(manager);
+    manager.joinRoom(roomId, 'p2', '玩家二', 'sock-2');
+    manager.joinRoom(roomId, 'p3', '玩家三', 'sock-3');
+    manager.joinRoom(roomId, 'p4', '玩家四', 'sock-4');
+
+    const result = manager.fillAIPlayers('host');
+
+    expect(result).toMatchObject({ success: false, error: 'ROOM_FULL' });
+  });
+});

@@ -16,6 +16,7 @@ export default function WaitingLobby({ room }: Props) {
   const isHost = room.hostUserId === myUserId;
   const [error, setError] = useState('');
   const [addingAI, setAddingAI] = useState(false);
+  const [fillingAI, setFillingAI] = useState(false);
   const [testingAI, setTestingAI] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -48,6 +49,18 @@ export default function WaitingLobby({ room }: Props) {
     setAddingAI(true);
     socket.emit('room:addAI', (res) => {
       setAddingAI(false);
+      if (!res.success) {
+        setError(res.message || '添加AI失败');
+      }
+    });
+  };
+
+  const handleFillAI = () => {
+    if (!socket || fillingAI) return;
+    setError('');
+    setFillingAI(true);
+    socket.emit('room:fillAI', (res) => {
+      setFillingAI(false);
       if (!res.success) {
         setError(res.message || '添加AI失败');
       }
@@ -129,10 +142,17 @@ export default function WaitingLobby({ room }: Props) {
                 </button>
                 <button
                   onClick={handleAddAI}
-                  disabled={addingAI}
+                  disabled={addingAI || fillingAI}
                   className="text-xs bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-wait text-white px-3 py-1.5 rounded-lg transition font-medium"
                 >
                   {addingAI ? '添加中...' : '+ 添加 AI'}
+                </button>
+                <button
+                  onClick={handleFillAI}
+                  disabled={addingAI || fillingAI}
+                  className="text-xs bg-violet-600 hover:bg-violet-500 disabled:bg-gray-600 disabled:cursor-wait text-white px-3 py-1.5 rounded-lg transition font-medium"
+                >
+                  {fillingAI ? '添加中...' : '加满 AI'}
                 </button>
               </div>
             )}

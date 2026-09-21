@@ -267,6 +267,19 @@ export function registerSocketHandlers(
     }
   });
 
+  socket.on('room:fillAI', (callback) => {
+    try {
+      const result = roomManager.fillAIPlayers(userId);
+      if (result.success && result.room) {
+        io.to(result.room.roomId).emit('server:roomUpdate', result.room);
+      }
+      callback({ success: result.success, error: result.error, message: result.message });
+    } catch (err) {
+      console.error('[room:fillAI] 错误:', err);
+      callback({ success: false, error: 'INTERNAL_ERROR', message: '添加AI失败' });
+    }
+  });
+
   socket.on('room:removeAI', (data) => {
     try {
       const result = roomManager.removeAIPlayer(userId, data.targetUserId);

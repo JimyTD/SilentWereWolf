@@ -23,6 +23,7 @@ export interface ClientToServerEvents {
   'room:updateSettings': (data: { settings: GameSettings }) => void;
   'room:startGame': (callback: (res: BaseResponse) => void) => void;
   'room:addAI': (callback: (res: BaseResponse) => void) => void;
+  'room:fillAI': (callback: (res: BaseResponse) => void) => void;
   'room:removeAI': (data: { targetUserId: string }) => void;
   'room:testAI': (callback: (res: BaseResponse) => void) => void;
   'client:nightAction': (data: NightActionPayload) => void;

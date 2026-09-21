@@ -361,31 +361,53 @@ export class RoomManager {
       nickname = getDefaultAIName(existingNames);
     }
 
-    const seatNumber = this.getNextSeat(room);
-    const player: RoomPlayer = {
-      userId: aiUserId,
-      nickname,
-      seatNumber,
-      connected: true,
-      ready: false,
-    };
-
-    room.players.push(player);
+    const player = this.addAIToRoom(room, aiUserId, nickname);
     room.lastActivityAt = Date.now();
-    this.aiPlayers.add(aiUserId);
-
-    // AI 不需要 UserInfo（不走 socket），但注册一个虚拟的方便查询
-    this.users.set(aiUserId, {
-      userId: aiUserId,
-      nickname,
-      socketId: '',
-      roomId: room.roomId,
-      connected: true,
-    });
 
     console.log(`[AI] AI 玩家 ${nickname}(${aiUserId}) 加入房间 ${room.roomId}`);
 
     return { success: true, room, player };
+  }
+
+  /**
+   * 将房间空位全部补齐为 AI 玩家（仅房主可调用）。
+   *
+   * 批量加入使用本地昵称池，不逐个等待 LLM 取名：既避免一次点击触发多次模型调用，
+   * 也让本次补位在同一个同步操作中完成，期间不会被其他加入请求插入。
+   */
+  fillAIPlayers(hostUserId: string): { success: boolean; room?: Room; addedCount?: number; error?: string; message?: string } {
+    const user = this.users.get(hostUserId);
+    if (!user || !user.roomId) {
+      return { success: false, error: 'NOT_IN_ROOM', message: '你不在房间中' };
+    }
+
+    const room = this.rooms.get(user.roomId);
+    if (!room) {
+      return { success: false, error: 'ROOM_NOT_FOUND', message: '房间不存在' };
+    }
+    if (room.hostUserId !== hostUserId) {
+      return { success: false, error: 'NOT_HOST', message: '仅房主可以添加AI' };
+    }
+    if (room.status !== ROOM_STATUS.WAITING) {
+      return { success: false, error: 'GAME_IN_PROGRESS', message: '游戏中无法添加AI' };
+    }
+
+    const totalNeeded = this.getTotalPlayersFromSettings(room.settings);
+    const addedCount = totalNeeded - room.players.length;
+    if (addedCount <= 0) {
+      return { success: false, error: 'ROOM_FULL', message: '房间已满' };
+    }
+
+    for (let index = 0; index < addedCount; index++) {
+      const nickname = getDefaultAIName(room.players.map(player => player.nickname));
+      const aiUserId = uuidv4();
+      this.addAIToRoom(room, aiUserId, nickname);
+    }
+    room.lastActivityAt = Date.now();
+
+    console.log(`[AI] 已向房间 ${room.roomId} 添加 ${addedCount} 名 AI 玩家`);
+
+    return { success: true, room, addedCount };
   }
 
   /**
@@ -586,6 +608,29 @@ export class RoomManager {
       if (!usedSeats.has(i)) return i;
     }
     return room.players.length + 1;
+  }
+
+  private addAIToRoom(room: Room, aiUserId: string, nickname: string): RoomPlayer {
+    const player: RoomPlayer = {
+      userId: aiUserId,
+      nickname,
+      seatNumber: this.getNextSeat(room),
+      connected: true,
+      ready: false,
+    };
+
+    room.players.push(player);
+    this.aiPlayers.add(aiUserId);
+    // AI 不走 socket，但保留虚拟用户信息以便查询其所在房间。
+    this.users.set(aiUserId, {
+      userId: aiUserId,
+      nickname,
+      socketId: '',
+      roomId: room.roomId,
+      connected: true,
+    });
+
+    return player;
   }
 
   getTotalPlayersFromSettings(settings: GameSettings): number {
