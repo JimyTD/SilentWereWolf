@@ -111,4 +111,16 @@ describe('批量添加 AI', () => {
 
     expect(result).toMatchObject({ success: false, error: 'ROOM_FULL' });
   });
+
+  it('房主离开后只剩 AI 时销毁房间', () => {
+    const manager = new RoomManager();
+    const roomId = createRoomWithHost(manager);
+    manager.fillAIPlayers('host');
+
+    const result = manager.leaveRoom('host');
+
+    expect(result).toMatchObject({ destroyed: true, room: null });
+    expect(manager.getRoom(roomId)).toBeUndefined();
+    expect(manager.getAIPlayers(roomId)).toEqual([]);
+  });
 });

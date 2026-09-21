@@ -158,8 +158,8 @@ export class RoomManager {
     room.players = room.players.filter(p => p.userId !== userId);
     user.roomId = null;
 
-    // 房间空了 → 销毁
-    if (room.players.length === 0) {
+    // 没有真人玩家时无法管理或开始游戏，避免房主离开后遗留 AI 房主的孤立大厅。
+    if (room.players.length === 0 || room.players.every(player => this.isAI(player.userId))) {
       this.destroyRoom(room.roomId);
       return { room: null, wasHost, newHost: null, destroyed: true };
     }
@@ -568,9 +568,13 @@ export class RoomManager {
     const room = this.rooms.get(roomId);
     if (room) {
       for (const player of room.players) {
-        const user = this.users.get(player.userId);
-        if (user) {
-          user.roomId = null;
+        if (this.aiPlayers.delete(player.userId)) {
+          this.users.delete(player.userId);
+        } else {
+          const user = this.users.get(player.userId);
+          if (user) {
+            user.roomId = null;
+          }
         }
         this.clearDisconnectTimer(player.userId);
       }
